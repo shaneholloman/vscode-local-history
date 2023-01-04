@@ -42,7 +42,11 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Create history on save document
-    vscode.workspace.onDidSaveTextDocument(document => {
+    vscode.workspace.onDidSaveTextDocument(async (document) => {
+        if (await checkIfAlreadySaved(context, document)) {
+            return;
+        }
+
         controller.saveRevision(document)
             .then ((saveDocument) => {
                 // refresh viewer (if any)
@@ -65,6 +69,19 @@ export function activate(context: vscode.ExtensionContext) {
             treeProvider.refresh();
         }
     });
+}
+
+async function checkIfAlreadySaved(context, document) {
+    const fileName = document.fileName;
+    const currentData = await context.workspaceState.get(fileName);
+    const data = document.getText();
+    const check = currentData && currentData == data;
+
+    if (!check) {
+        await context.workspaceState.update(fileName, data);
+    }
+
+    return check;
 }
 
 // function deactivate() {
