@@ -37,7 +37,7 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
     }
 
     initLocation() {
-        vscode.commands.executeCommand('setContext', 'local-history:treeLocation', HistorySettings.getTreeLocation());
+        vscode.commands.executeCommand('setContext', 'localHistory:treeLocation', HistorySettings.getTreeLocation());
     }
 
     getSettingsItem(): HistoryItem {
@@ -421,7 +421,7 @@ class HistoryItem extends vscode.TreeItem {
         grp?: string,
         showIcon?: boolean,
     ) {
-        const config = vscode.workspace.getConfiguration('local-history');
+        const config = vscode.workspace.getConfiguration('localHistory');
         const alwaysExpand = config.get('alwaysExpand');
 
         super(

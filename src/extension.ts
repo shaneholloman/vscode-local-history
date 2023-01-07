@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-
 import { HistoryController } from './history.controller';
 import HistoryTreeProvider from './historyTree.provider';
+
+const CMND_NAME = 'local-history';
 
 /**
 * Activate the extension.
@@ -9,11 +10,11 @@ import HistoryTreeProvider from './historyTree.provider';
 export function activate(context: vscode.ExtensionContext) {
     const controller = new HistoryController();
 
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand('local-history.showAll', controller.showAll, controller));
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand('local-history.showCurrent', controller.showCurrent, controller));
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand('local-history.compareToActive', controller.compareToActive, controller));
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand('local-history.compareToCurrent', controller.compareToCurrent, controller));
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand('local-history.compareToPrevious', controller.compareToPrevious, controller));
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${CMND_NAME}.showAll`, controller.showAll, controller));
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${CMND_NAME}.showCurrent`, controller.showCurrent, controller));
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${CMND_NAME}.compareToActive`, controller.compareToActive, controller));
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${CMND_NAME}.compareToCurrent`, controller.compareToCurrent, controller));
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${CMND_NAME}.compareToPrevious`, controller.compareToPrevious, controller));
 
     // Tree
     const treeProvider = new HistoryTreeProvider(controller);
@@ -61,10 +62,10 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     vscode.workspace.onDidChangeConfiguration((configChangedEvent) => {
-        if (configChangedEvent.affectsConfiguration('local-history.treeLocation'))
+        if (configChangedEvent.affectsConfiguration('localHistory.treeLocation'))
             treeProvider.initLocation();
 
-        else if (configChangedEvent.affectsConfiguration('local-history')) {
+        else if (configChangedEvent.affectsConfiguration('localHistory')) {
             controller.clearSettings();
             treeProvider.refresh();
         }

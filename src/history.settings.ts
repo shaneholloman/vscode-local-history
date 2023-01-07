@@ -34,7 +34,7 @@ export class HistorySettings {
     private settings: IHistorySettings[];
 
     public static getTreeLocation(): EHistoryTreeLocation {
-        const config = vscode.workspace.getConfiguration('local-history');
+        const config = vscode.workspace.getConfiguration('localHistory');
 
         return <EHistoryTreeLocation>config.get('treeLocation');
     }
@@ -83,7 +83,7 @@ export class HistorySettings {
        (no workspacefolder => not saved)
     */
     private read(workspacefolder: vscode.Uri, file: vscode.Uri, ws: vscode.WorkspaceFolder): IHistorySettings {
-        let config = vscode.workspace.getConfiguration('local-history'),
+        let config = vscode.workspace.getConfiguration('localHistory'),
             enabled = <EHistoryEnabled>config.get('enabled'),
             exclude = <string[]>config.get('exclude'),
             historyPath,
@@ -91,9 +91,9 @@ export class HistorySettings {
             message = '';
 
         if (typeof enabled === 'boolean')
-            message += 'local-history.enabled must be a number, ';
+            message += 'localHistory.enabled must be a number, ';
         if (typeof exclude === 'string')
-            message += 'local-history.exclude must be an array, ';
+            message += 'localHistory.exclude must be an array, ';
         if (message)
             vscode.window.showWarningMessage(`Change setting: ${message.slice(0, -2)}`, {}, { title: 'Settings', isCloseAffordance: false, id: 0 })
                 .then((action) => {
@@ -120,7 +120,7 @@ export class HistorySettings {
 
                 if (match) {
                     if (match.index > 1) {
-                        vscode.window.showErrorMessage(`\${workspaceFolder} must starts settings local-history.path ${historyPath}`);
+                        vscode.window.showErrorMessage(`\${workspaceFolder} must starts settings localHistory.path ${historyPath}`);
                     } else {
                         const wsId = match[1];
 
