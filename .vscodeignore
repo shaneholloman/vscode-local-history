@@ -1,10 +1,9 @@
 .vscode/**
 typings/**
-**/.history/**
 src/**
 **/*.map
-.gitignore
-.gitattributes
-tsconfig.json
-tslint.json
-TODO.TXT
+.git*
+*.vsix
+**/.eslintrc.json
+.history
+.DS_Store

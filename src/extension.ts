@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
-import {HistoryController}  from './history.controller';
-import HistoryTreeProvider  from './historyTree.provider';
+import { HistoryController } from './history.controller';
+import HistoryTreeProvider from './historyTree.provider';
 
 /**
 * Activate the extension.
@@ -38,7 +38,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Create first history before save document
     vscode.workspace.onWillSaveTextDocument(
-        e => e.waitUntil(controller.saveFirstRevision(e.document))
+        (e) => e.waitUntil(controller.saveFirstRevision(e.document)),
     );
 
     // Create history on save document
@@ -48,7 +48,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         controller.saveRevision(document)
-            .then ((saveDocument) => {
+            .then((saveDocument) => {
                 // refresh viewer (if any)
                 if (saveDocument) {
                     treeProvider.refresh();
@@ -57,14 +57,14 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     vscode.window.onDidChangeActiveTextEditor(
-        e => treeProvider.changeActiveFile()
+        (e) => treeProvider.changeActiveFile(e),
     );
 
-    vscode.workspace.onDidChangeConfiguration(configChangedEvent => {
-        if ( configChangedEvent.affectsConfiguration('local-history.treeLocation') )
+    vscode.workspace.onDidChangeConfiguration((configChangedEvent) => {
+        if (configChangedEvent.affectsConfiguration('local-history.treeLocation'))
             treeProvider.initLocation();
 
-        else if ( configChangedEvent.affectsConfiguration('local-history') ) {
+        else if (configChangedEvent.affectsConfiguration('local-history')) {
             controller.clearSettings();
             treeProvider.refresh();
         }
@@ -84,5 +84,4 @@ async function checkIfAlreadySaved(context, document) {
     return check;
 }
 
-// function deactivate() {
-// }
+export function deactivate() { }
