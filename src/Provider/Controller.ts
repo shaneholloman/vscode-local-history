@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import rimraf from 'rimraf';
 import * as vscode from 'vscode';
-import { HistorySettings, IHistorySettings } from './history.settings';
-import Timeout from './timeout';
+import Timeout from '../Timeout';
+import * as utils from '../utils';
+import { HistorySettings, IHistorySettings } from './Settings';
 
 interface IHistoryActionValues {
     active: string;
@@ -34,13 +35,15 @@ export class HistoryController {
     private regExp = /_(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/;
 
     constructor() {
+        utils.readConfig();
+
         this.settings = new HistorySettings();
         this.saveBatch = new Map();
     }
 
     public saveFirstRevision(document: vscode.TextDocument) {
         // Put a timeout of 1000 ms, cause vscode wait until a delay and then continue the saving.
-        // Timeout avoid to save a wrong version, because it's to late and vscode has already saved the file.
+        // Timeout avoid to save a wrong version, because it's too late and vscode has already saved the file.
         // (if an error occurred 3 times this code will not be called anymore.)
         // cf. https://github.com/Microsoft/vscode/blob/master/src/vs/workbench/api/node/extHostDocumentSaveParticipant.ts
         return this.internalSave(document, true, new Timeout(1000));
@@ -135,14 +138,7 @@ export class HistoryController {
     }
 
     public deleteAll(fileHistoryPath: string) {
-        return new Promise((resolve, reject) => {
-            rimraf(fileHistoryPath, (err) => {
-                if (err)
-                    return reject(err);
-
-                return resolve();
-            });
-        });
+        return rimraf(fileHistoryPath);
     }
 
     public deleteHistory(fileName: string): Promise<void> {
@@ -235,8 +231,8 @@ export class HistoryController {
             else if (settings.saveDelay)
                 this.saveBatch.delete(document.fileName);
 
-            let now = new Date(),
-                nowInfo;
+            let now = new Date();
+            let nowInfo;
 
             if (isOriginal) {
                 // find original date (if any)
@@ -309,8 +305,8 @@ export class HistoryController {
         if (!settings.enabled)
             return;
 
-        const me = this,
-              document = (editor && editor.document);
+        const me = this;
+        const document = (editor && editor.document);
 
         if (!document)
             return;
@@ -323,8 +319,10 @@ export class HistoryController {
                     return;
                 }
 
-                const displayFiles = [];
-                let file, relative, properties;
+                const displayFiles: any = [];
+                let file;
+                let relative;
+                let properties;
 
                 // desc order history
                 for (let index = files.length - 1; index >= 0; index--) {
@@ -395,10 +393,11 @@ export class HistoryController {
     }
 
     private internalDecodeFile(filePath: string, settings: IHistorySettings, history?: boolean): IHistoryFileProperties {
-        let me = this,
-            file, p,
-            date,
-            isHistory = false;
+        const me = this;
+        let file;
+        let p;
+        let date;
+        let isHistory = false;
 
         p = path.parse(filePath);
 
@@ -419,12 +418,14 @@ export class HistoryController {
             if (history !== isHistory) {
                 if (history === true) {
                     root = settings.historyPath;
+
                     if (!settings.absolute)
                         p.dir = path.relative(settings.folder.fsPath, p.dir);
                     else
                         p.dir = this.normalizePath(p.dir, false);
                 } else { // if (history === false)
                     p.dir = path.relative(settings.historyPath, p.dir);
+
                     if (!settings.absolute) {
                         root = settings.folder.fsPath;
                     } else {
@@ -503,14 +504,16 @@ export class HistoryController {
                     return;
                 }
 
-                let stat: fs.Stats,
-                    now: number = new Date().getTime(),
-                    endTime: number;
+                let stat: fs.Stats;
+                const now: number = new Date().getTime();
+                let endTime: number;
 
                 for (const file of files) {
                     stat = fs.statSync(file);
+
                     if (stat && stat.isFile()) {
                         endTime = stat.mtime.getTime() + settings.daysLimit * 24 * 60 * 60 * 1000;
+
                         if (now > endTime) {
                             fs.unlinkSync(file);
                         }
@@ -535,7 +538,9 @@ export class HistoryController {
             return true;
         }
         catch (err) {
-            vscode.window.showErrorMessage(`Error with mkdir: '${err.toString()}' file '${fileName}`);
+            if (!utils.config.suppressErrors) {
+                vscode.window.showErrorMessage(`Error with mkdir: '${err.toString()}' file '${fileName}`);
+            }
 
             return false;
         }

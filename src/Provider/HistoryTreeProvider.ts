@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { HistoryController, IHistoryFileProperties } from './history.controller';
-import { HistorySettings, IHistorySettings } from './history.settings';
+import * as utils from '../utils';
+import { HistoryController, IHistoryFileProperties } from './Controller';
+import { HistorySettings, IHistorySettings } from './Settings';
 
 const enum EHistoryTreeItem {
     None = 0,
@@ -31,8 +32,10 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
 
     public contentKind: EHistoryTreeContentKind = 0;
     private searchPattern: string;
+    private controller: HistoryController;
 
-    constructor(private controller: HistoryController) {
+    constructor(controller: HistoryController) {
+        this.controller = controller;
         this.initLocation();
     }
 
@@ -67,7 +70,7 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
 
             if (keys && keys.length) {
                 if (!element) {
-                    const items = [];
+                    const items: any = [];
                     items.push(this.getSettingsItem());
                     keys.forEach((key) => items.push(this.tree[key].grp));
 
@@ -167,8 +170,10 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
                             .sort((f1, f2) => {
                                 if (!f1 || !f2)
                                     return 0;
+
                                 if (f1.date > f2.date)
                                     return -1;
+
                                 if (f1.date < f2.date)
                                     return 1;
 
@@ -178,6 +183,7 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
                                 if (file)
                                     if (grp !== 'Older') {
                                         grp = this.getRelativeDate(file.date);
+
                                         if (!this.historyFiles[grp])
                                             this.historyFiles[grp] = [file];
                                         else
@@ -193,8 +199,8 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
     }
 
     private loadHistoryGroups(historyFiles: Object): HistoryItem[] {
-        const items = [],
-              keys = historyFiles && Object.keys(historyFiles);
+        const items: any = [];
+        const keys = historyFiles && Object.keys(historyFiles);
 
         if (keys && keys.length > 0)
             keys.forEach((key) => {
@@ -209,14 +215,14 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
     }
 
     private getRelativeDate(fileDate: Date) {
-        const hour = 60 * 60,
-              day = hour * 24,
-              ref = fileDate.getTime() / 1000;
+        const hour = 60 * 60;
+        const day = hour * 24;
+        const ref = fileDate.getTime() / 1000;
 
         if (!this.date) {
-            const dt = new Date(),
-                  now = dt.getTime() / 1000,
-                  today = dt.setHours(0, 0, 0, 0) / 1000; // clear current hour
+            const dt = new Date();
+            const now = dt.getTime() / 1000;
+            const today = dt.setHours(0, 0, 0, 0) / 1000; // clear current hour
             this.date = {
                 now        : now,
                 today      : today,
@@ -250,15 +256,18 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
     }
 
     public changeActiveFile(editor: vscode.TextEditor | undefined) {
-        if (!editor)
-            return;
+        setTimeout(() => {
+            if (!editor) {
+                return this.refresh();
+            }
 
-        const filename = editor.document.uri;
-        const settings = this.controller.getSettings(filename);
-        const prop = this.controller.decodeFile(filename.fsPath, settings, false);
+            const filename = editor.document.uri;
+            const settings = this.controller.getSettings(filename);
+            const prop = this.controller.decodeFile(filename.fsPath, settings, false);
 
-        if (!prop || prop.file !== this.currentHistoryFile)
-            this.refresh();
+            if (!prop || prop.file !== this.currentHistoryFile)
+                this.refresh();
+        }, 50);
     }
 
     public refresh(noLimit = false): void {
@@ -280,6 +289,7 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
 
     public deleteAll(): void {
         let message;
+
         switch (this.contentKind) {
             case EHistoryTreeContentKind.All:
                 message = `Delete all history - ${this.currentHistoryPath}?`;
@@ -313,7 +323,8 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
                             const keys = Object.keys(this.historyFiles);
 
                             if (keys && keys.length) {
-                                const items = [];
+                                const items: any = [];
+
                                 keys.forEach((key) => items.push(...this.historyFiles[key].map((item) => item.file)));
                                 this.controller.deleteFiles(items)
                                     .then(() => this.refresh())
@@ -421,8 +432,8 @@ class HistoryItem extends vscode.TreeItem {
         grp?: string,
         showIcon?: boolean,
     ) {
-        const config = vscode.workspace.getConfiguration('localHistory');
-        const alwaysExpand = config.get('alwaysExpand');
+        utils.readConfig();
+        const alwaysExpand = utils.config.alwaysExpand;
 
         super(
             label,
@@ -440,6 +451,7 @@ class HistoryItem extends vscode.TreeItem {
                 this.contextValue = 'localHistoryItem';
                 this.tooltip = file.fsPath; // TODO remove before .history
                 this.resourceUri = file;
+
                 if (showIcon)
                     this.iconPath = false;
                 break;

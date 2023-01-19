@@ -2,6 +2,7 @@ import isPathInside from 'is-path-inside';
 import os from 'node:os';
 import path from 'node:path';
 import * as vscode from 'vscode';
+import * as utils from '../utils';
 
 const enum EHistoryEnabled {
     Never = 0,
@@ -34,12 +35,12 @@ export class HistorySettings {
     private settings: IHistorySettings[];
 
     public static getTreeLocation(): EHistoryTreeLocation {
-        const config = vscode.workspace.getConfiguration('localHistory');
-
-        return <EHistoryTreeLocation>config.get('treeLocation');
+        return <EHistoryTreeLocation>utils.config.treeLocation;
     }
 
     constructor() {
+        utils.readConfig();
+
         this.settings = [];
     }
 
@@ -83,26 +84,14 @@ export class HistorySettings {
        (no workspacefolder => not saved)
     */
     private read(workspacefolder: vscode.Uri, file: vscode.Uri, ws: vscode.WorkspaceFolder): IHistorySettings {
-        let config = vscode.workspace.getConfiguration('localHistory'),
-            enabled = <EHistoryEnabled>config.get('enabled'),
-            exclude = <string[]>config.get('exclude'),
-            historyPath,
-            absolute,
-            message = '';
-
-        if (typeof enabled === 'boolean')
-            message += 'localHistory.enabled must be a number, ';
-        if (typeof exclude === 'string')
-            message += 'localHistory.exclude must be an array, ';
-        if (message)
-            vscode.window.showWarningMessage(`Change setting: ${message.slice(0, -2)}`, {}, { title: 'Settings', isCloseAffordance: false, id: 0 })
-                .then((action) => {
-                    if (action && action.id === 0)
-                        vscode.commands.executeCommand('workbench.action.openGlobalSettings');
-                });
+        const config = utils.readConfig();
+        const enabled = <EHistoryEnabled>utils.config.enabled;
+        let historyPath;
+        let absolute;
 
         if (enabled !== EHistoryEnabled.Never) {
-            historyPath = <string>config.get('path');
+            historyPath = <string>utils.config.path;
+
             if (historyPath) {
 
                 historyPath = historyPath
@@ -143,12 +132,11 @@ export class HistorySettings {
                 }
 
                 if (historyPath) {
-                    absolute = <boolean>config.get('absolute');
+                    absolute = <boolean>utils.config.absolute;
+
                     if (absolute || (!workspacefolder && enabled === EHistoryEnabled.Always)) {
                         absolute = true;
-                        historyPath = path.join(
-                            historyPath,
-                            '.history');
+                        historyPath = path.join(historyPath, '.history');
                     } else if (workspacefolder) {
                         historyPath = path.join(
                             historyPath,
@@ -161,10 +149,7 @@ export class HistorySettings {
             } else if (workspacefolder) {
                 // Save only files in workspace
                 absolute = false;
-                historyPath = path.join(
-                    workspacefolder.fsPath,
-                    '.history',
-                );
+                historyPath = path.join(workspacefolder.fsPath, '.history');
             }
         }
 
@@ -172,18 +157,12 @@ export class HistorySettings {
             historyPath = historyPath.replace(/\//g, path.sep);
 
         return {
-            folder     : workspacefolder,
-            daysLimit  : <number>config.get('daysLimit', 30),
-            saveDelay  : <number>config.get('saveDelay', 0),
-            maxDisplay : <number>config.get('maxDisplay', 10),
-            dateLocale : <string>config.get('dateLocale'),
-            exclude    : <string[]>config.get('exclude', [
-                '**/.history/**',
-                '**/.vscode/**',
-                '**/node_modules/**',
-                '**/typings/**',
-                '**/out/**',
-            ]),
+            folder      : workspacefolder,
+            daysLimit   : utils.config.daysLimit,
+            saveDelay   : utils.config.saveDelay,
+            maxDisplay  : utils.config.maxDisplay,
+            dateLocale  : utils.config.dateLocale,
+            exclude     : utils.config.exclude,
             enabled     : historyPath != null && historyPath !== '',
             historyPath : historyPath,
             absolute    : absolute,
