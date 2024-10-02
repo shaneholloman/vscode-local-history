@@ -282,9 +282,22 @@ export class HistoryController {
             if (!patternFilePath)
                 reject('no pattern path');
 
+            // Find the last underscore in the patternFilePath
+            const lastUnderscoreIndex = patternFilePath.lastIndexOf('_');
+
+            // Split the patternFilePath at the last underscore
+            const pathPart = patternFilePath.substring(0, lastUnderscoreIndex);
+            const rest = patternFilePath.substring(lastUnderscoreIndex);
+
+            // Escape special characters in the path part
+            const escapedPathPart = pathPart.replace(/([[\]{}()*+?.,\\^$|#\s])/g, '\\$&');
+
+            // Recombine the escaped path part with the rest of the patternFilePath
+            const escapedPatternFilePath = escapedPathPart + rest;
+
             // glob must use character /
             const historyPath = settings.historyPath.replace(/\\/g, '/');
-            glob(patternFilePath, { cwd: historyPath, absolute: true }, (err, files: string[]) => {
+            glob(escapedPatternFilePath, { cwd: historyPath, absolute: true }, (err, files: string[]) => {
                 if (!err) {
                     if (files && files.length) {
                         // files are sorted in ascending order
