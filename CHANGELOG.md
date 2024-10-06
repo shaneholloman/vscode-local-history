@@ -17,3 +17,7 @@
 - add new config `localHistory.suppressErrors`
 - update vscode minimum version to `1.68`
 - make sure to hide the tree items when no editor is opened
+
+## 0.0.4
+
+- fix: Handle special characters in file path @wrgrant
