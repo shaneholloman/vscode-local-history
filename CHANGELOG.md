@@ -21,3 +21,7 @@
 ## 0.0.4
 
 - fix: Handle special characters in file path @wrgrant
+
+## 0.0.5
+
+- update rdme, thanx @shaneholloman
