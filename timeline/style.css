@@ -1,0 +1,626 @@
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    :root {
+        --bg: var(--vscode-editor-background, #1e1e1e);
+        --fg: var(--vscode-editor-foreground, #d4d4d4);
+        --font: var(--vscode-editor-font-family, 'Cascadia Code', 'Fira Code', 'Consolas', monospace);
+        --font-size: var(--vscode-editor-font-size, 14px);
+        --line-height: 1.5em;
+        --added-bg: var(--vscode-diffEditor-insertedTextBackground, rgb(155 185 85 / 20%));
+        --removed-bg: var(--vscode-diffEditor-removedTextBackground, rgb(255 0 0 / 20%));
+        --border: var(--vscode-panel-border, #333333);
+        --title-bg: var(--vscode-titleBar-activeBackground, #2d2d2d);
+        --title-fg: var(--vscode-titleBar-activeForeground, #cccccc);
+        --btn-bg: var(--vscode-button-background, #0e639c);
+        --btn-fg: var(--vscode-button-foreground, #ffffff);
+        --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
+        --scrollbar: var(--vscode-scrollbarSlider-background, #424242);
+        --hover-bg: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground, transparent));
+        --stripe: var(--vscode-editorIndentGuide-background, var(--border));
+    }
+
+    html,
+    body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font);
+        font-size: var(--font-size);
+        height: 100%;
+        overflow: hidden;
+    }
+
+    body {
+        display: flex;
+        flex-direction: column;
+    }
+
+    body.loading {
+        visibility: hidden;
+    }
+
+    .global-loading-indicator {
+        display: none;
+        height: 100vh;
+        left: 0;
+        place-items: center;
+        position: fixed;
+        top: 0;
+        visibility: hidden;
+        width: 100vw;
+        z-index: 100;
+    }
+
+    body.loading .global-loading-indicator {
+        display: grid;
+        visibility: visible;
+    }
+
+    body.loading.reactivating .global-loading-indicator {
+        visibility: hidden;
+    }
+
+    .loading-indicator {
+        display: none;
+        height: 100%;
+        left: 0;
+        place-items: center;
+        position: absolute;
+        top: 0;
+        visibility: hidden;
+        width: 100%;
+        z-index: 100;
+    }
+
+    .diff-container.loading .loading-indicator {
+        display: grid;
+        visibility: visible;
+    }
+
+    .global-loading-indicator span,
+    .loading-indicator span {
+        animation: loading-spin 0.7s linear infinite;
+        border: 2px solid var(--border);
+        border-radius: 50%;
+        border-top-color: var(--btn-bg);
+        height: 24px;
+        width: 24px;
+    }
+
+    @keyframes loading-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    #hoverTooltip {
+        background: var(--vscode-editorHoverWidget-background, var(--bg));
+        border: 1px solid var(--vscode-editorHoverWidget-border, var(--border));
+        border-radius: var(--vscode-cornerRadius-medium);
+        box-shadow: var(--vscode-widget-shadow, 0 2px 8px rgb(0 0 0 / 35%));
+        color: var(--vscode-editorHoverWidget-foreground, var(--fg));
+        display: none;
+        font-size: 12px;
+        line-height: 1.3;
+        max-width: 320px;
+        padding: 4px 8px;
+        pointer-events: none;
+        position: fixed;
+        z-index: 100;
+    }
+
+    #hoverTooltip.visible {
+        display: block;
+    }
+
+    /* Title bar */
+    .title-bar {
+        align-items: center;
+        background: var(--title-bg);
+        color: var(--title-fg);
+        display: flex;
+        flex-shrink: 0;
+        font-size: 12px;
+        justify-content: space-between;
+        padding: 4px 12px;
+        position: relative;
+        user-select: none;
+    }
+
+    .title-bar .nav-area {
+        align-items: center;
+        display: flex;
+        gap: 6px;
+    }
+
+    .title-bar .nav-btn {
+        background: none;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        color: var(--fg);
+        cursor: pointer;
+        font-size: 14px;
+        opacity: 0.7;
+        padding: 2px 6px;
+    }
+
+    .title-bar .nav-btn:hover:not(:disabled) {
+        background: var(--hover-bg);
+        opacity: 1;
+    }
+
+    .title-bar .nav-btn:disabled {
+        cursor: default;
+        opacity: 0.3;
+    }
+
+    .title-bar .counter {
+        font-size: 11px;
+        min-width: 60px;
+        opacity: 0.7;
+        text-align: center;
+    }
+
+    .title-bar .view-toggle {
+        background: var(--btn-bg);
+        border: none;
+        border-radius: var(--vscode-cornerRadius-medium);
+        color: var(--btn-fg);
+        cursor: pointer;
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+
+    .title-bar .view-toggle:hover {
+        background: var(--btn-hover);
+    }
+
+    .title-bar .undo-btn {
+        background: var(--btn-bg);
+        border: none;
+        border-radius: var(--vscode-cornerRadius-medium);
+        color: var(--btn-fg);
+        cursor: pointer;
+        display: none;
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+
+    .title-bar .undo-btn:hover {
+        background: var(--btn-hover);
+    }
+
+    .title-bar .undo-btn.visible {
+        display: inline-block;
+    }
+
+    /* Diff panels */
+    .diff-container {
+        --line-number-digits: 1;
+        --line-number-width: max(36px, calc(var(--line-number-digits) * 1ch + 24px));
+
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        position: relative;
+    }
+
+    .diff-container.loading {
+        visibility: hidden;
+    }
+
+    .diff-container::before,
+    .diff-container::after {
+        background: var(--border);
+        bottom: 0;
+        content: '';
+        opacity: 0.5;
+        pointer-events: none;
+        position: absolute;
+        top: 0;
+        width: 1px;
+        z-index: 1;
+    }
+
+    .diff-container::before {
+        left: calc(50% + var(--line-number-width) / 2);
+    }
+
+    .diff-container::after {
+        left: calc(50% - var(--line-number-width) / 2);
+    }
+
+    .unified-mode::before {
+        left: var(--line-number-width);
+    }
+
+    .unified-mode::after,
+    .same-content::after {
+        display: none;
+    }
+
+    .same-content::before {
+        left: var(--line-number-width);
+    }
+
+    .diff-pane {
+        flex: 1;
+        overflow: hidden auto;
+        position: relative;
+    }
+
+    #leftPane {
+        flex-basis: calc(50% - var(--line-number-width) / 2);
+    }
+
+    #rightPane {
+        flex-basis: calc(50% + var(--line-number-width) / 2);
+    }
+
+    #leftPane .ln-num {
+        display: none;
+    }
+
+    #leftPane .line {
+        flex-direction: row-reverse;
+    }
+
+    .diff-container:focus {
+        outline: none;
+    }
+
+    .same-content #leftPane {
+        display: none;
+    }
+
+    .same-content .unchanged-region {
+        padding-left: 0;
+    }
+
+    .code-lines {
+        min-width: 0;
+        padding-bottom: 4px;
+    }
+
+    .line {
+        display: flex;
+        line-height: var(--line-height);
+        min-height: var(--line-height);
+        overflow-wrap: anywhere;
+        position: relative;
+        white-space: pre-wrap;
+    }
+
+    .ln-num {
+        color: var(--vscode-editorLineNumber-foreground, #858585);
+        flex: none;
+        min-width: var(--line-number-width);
+        padding: 0 12px;
+        text-align: right;
+        user-select: none;
+        width: var(--line-number-width);
+    }
+
+    .line .ln {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        padding: 0 8px;
+    }
+
+    .diff-removed .ln {
+        background: var(--removed-bg);
+    }
+
+    .diff-added .ln {
+        background: var(--added-bg);
+    }
+
+    .inline-diff-removed {
+        background: var(--vscode-diffEditor-removedTextBackground, rgb(255 0 0 / 35%));
+        box-shadow: inset 0 -2px var(--vscode-diffEditor-removedTextBorder, var(--removed-bg));
+    }
+
+    .inline-diff-added {
+        background: var(--vscode-diffEditor-insertedTextBackground, rgb(155 185 85 / 35%));
+        box-shadow: inset 0 -2px var(--vscode-diffEditor-insertedTextBorder, var(--added-bg));
+    }
+
+    .diff-empty .ln {
+        background: repeating-linear-gradient(-45deg, var(--stripe) 0 2px, transparent 2px 10px);
+    }
+
+    .clickable-hunk,
+    .clickable-region {
+        cursor: pointer;
+    }
+
+    .unchanged-hidden {
+        max-height: 0 !important;
+        min-height: 0;
+        opacity: 0;
+        overflow: hidden;
+        pointer-events: none;
+    }
+
+    .line[data-region]:not(.clickable-region) {
+        overflow: hidden;
+    }
+
+    .unchanged-region {
+        background: var(--bg);
+        color: var(--vscode-descriptionForeground, #888888);
+        justify-content: center;
+        padding-left: var(--line-number-width);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+
+    .unchanged-region:focus {
+        outline: none;
+    }
+
+    .unchanged-region .hidden-label {
+        background: var(--vscode-editor-lineHighlightBackground, transparent);
+    }
+
+    #leftPane .unchanged-region {
+        padding-left: 0;
+    }
+
+    .hidden-label {
+        flex: 1;
+        text-align: center;
+    }
+
+    /* Unified view */
+    .unified-pane {
+        display: none;
+        flex: 1;
+        overflow: auto;
+        position: relative;
+    }
+
+    .unified-mode .unified-pane {
+        display: block;
+    }
+
+    .unified-mode .diff-pane {
+        display: none;
+    }
+
+    /* Restore button overlaid on snapshot pane */
+    .restore-btn {
+        background: var(--btn-bg);
+        border: none;
+        border-radius: var(--vscode-cornerRadius-medium);
+        bottom: 20px;
+        color: var(--btn-fg);
+        cursor: pointer;
+        font-size: 12px;
+        height: 32px;
+        opacity: 0.9;
+        padding: 8px;
+        position: fixed;
+        right: calc(50% + var(--line-number-width) / 2 + 20px);
+        z-index: 20;
+    }
+
+    .unified-mode .restore-btn {
+        right: 60px;
+    }
+
+    .restore-btn:hover {
+        background: var(--btn-hover);
+        opacity: 1;
+    }
+
+    .scroll-top-btn {
+        align-items: center;
+        background: var(--btn-bg);
+        border: none;
+        border-radius: var(--vscode-cornerRadius-medium);
+        bottom: 20px;
+        color: var(--btn-fg);
+        cursor: pointer;
+        display: flex;
+        font-size: 18px;
+        height: 32px;
+        justify-content: center;
+        opacity: 1;
+        padding: 0;
+        position: fixed;
+        right: 20px;
+        width: 32px;
+        z-index: 20;
+    }
+
+    .scroll-top-btn.hidden {
+        display: none;
+    }
+
+    .scroll-top-btn img {
+        height: 20px;
+        pointer-events: none;
+        width: 20px;
+    }
+
+    .scroll-top-btn.scroll-bottom img {
+        transform: rotate(180deg);
+    }
+
+    /* Scrollbar */
+    .diff-pane::-webkit-scrollbar {
+        height: 8px;
+        width: 8px;
+    }
+
+    .diff-pane::-webkit-scrollbar-thumb {
+        background: var(--scrollbar);
+        border-radius: var(--vscode-cornerRadius-medium);
+    }
+
+    .diff-pane::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    /* Timeline strip */
+    .timeline-strip {
+        background: var(--title-bg);
+        border-bottom: 1px solid var(--border);
+        border-top: 1px solid var(--border);
+        flex-shrink: 0;
+        height: 100px;
+        overflow: auto hidden;
+        padding: 0 0 3px;
+    }
+
+    .timeline-track {
+        align-items: stretch;
+        display: flex;
+        flex-direction: row;
+        height: 100%;
+        min-width: 100%;
+        padding: 3px 0;
+        position: relative;
+        width: max-content;
+    }
+
+    .timeline-rail {
+        background: var(--border);
+        height: 2px;
+        left: 0;
+        pointer-events: none;
+        position: absolute;
+        right: 0;
+        top: calc(50% - 1px);
+        z-index: 1;
+    }
+
+    .timeline-track::before,
+    .timeline-track::after {
+        content: '';
+        flex: 0 0 52px;
+        pointer-events: none;
+    }
+
+    .timeline-point {
+        align-items: center;
+        background: none;
+        border: 0;
+        color: var(--fg);
+        cursor: pointer;
+        display: flex;
+        flex: 1 0 104px;
+        flex-direction: column;
+        font: inherit;
+        height: 100%;
+        justify-content: center;
+        min-width: 0;
+        padding: 0 4px;
+        pointer-events: auto;
+        position: relative;
+        z-index: 2;
+    }
+
+    .timeline-dot {
+        background: var(--stripe);
+        border: 2px solid var(--title-bg);
+        border-radius: 50%;
+        height: 10px;
+        pointer-events: auto;
+        position: relative;
+        transition: transform 0.15s ease, background 0.15s ease;
+        width: 10px;
+        z-index: 15;
+    }
+
+    .timeline-point:hover .timeline-dot,
+    .timeline-point:focus-visible .timeline-dot,
+    .timeline-point.active .timeline-dot {
+        transform: scale(1.7);
+    }
+
+    .timeline-point.active .timeline-dot {
+        background: var(--btn-bg);
+    }
+
+    .timeline-date {
+        font-size: 10px;
+        line-height: 1.2;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        pointer-events: none;
+        position: absolute;
+        right: 4px;
+        text-align: center;
+        white-space: normal;
+        width: calc(100% - 8px);
+    }
+
+    .timeline-point:nth-child(odd) .timeline-date {
+        bottom: calc(50% + 12px);
+    }
+
+    .timeline-point:nth-child(even) .timeline-date {
+        top: calc(50% + 12px);
+    }
+
+    .zoom-controls {
+        align-items: center;
+        background: var(--hover-bg);
+        border-radius: 0 0 var(--vscode-cornerRadius-medium) var(--vscode-cornerRadius-medium);
+        display: flex;
+        gap: 4px;
+        justify-content: space-between;
+        left: 50%;
+        padding: 4px 8px;
+        position: absolute;
+        top: 0;
+        transform: translateX(-50%);
+        z-index: 1;
+    }
+
+    .zoom-btn {
+        background: transparent;
+        border: none;
+        color: var(--fg);
+        cursor: pointer;
+        font-size: 17px;
+        line-height: 1;
+        padding: 0;
+        width: 28px;
+    }
+
+    .zoom-btn:hover {
+        background: var(--bg));
+        color: var(--fg);
+    }
+
+    #zoomResetBtn {
+        border-left: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+        font-size: 10px;
+        width: 50px;
+    }
+
+    @keyframes hunkChange {
+        from {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        to {
+            opacity: 0;
+            transform: translateX(24px);
+        }
+    }
+
+    .hunk-changing {
+        animation: hunkChange 0.18s ease forwards;
+        pointer-events: none;
+    }

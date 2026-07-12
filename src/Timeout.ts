@@ -1,22 +1,21 @@
 export default class Timeout {
-
-    private startTime;
-    private duration = 0;
+    private startTime
+    private duration = 0
 
     constructor(duration: number) {
-        this.duration = duration;
-        this.startTime = new Date();
+        this.duration = duration
+        this.startTime = new Date()
     }
 
     public isTimedOut() {
-        return this.getDuration() > this.duration;
+        return this.getDuration() > this.duration
     }
 
     public logDuration(message = '') {
-        console.log(`${message}: ${this.getDuration()}`);
+        console.log(`${message}: ${this.getDuration()}`)
     }
 
     private getDuration(): number {
-        return (new Date()).getTime() - this.startTime.getTime();
+        return (new Date()).getTime() - this.startTime.getTime()
     }
 }

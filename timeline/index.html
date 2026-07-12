@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src __CSP_SOURCE__; style-src __CSP_SOURCE__ 'unsafe-inline'; script-src __CSP_SOURCE__;">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="__STYLE_URI__">
+</head>
+<body class="loading" data-breakpoint="__BREAKPOINT__" data-initial-unified="__INITIAL_UNIFIED__" data-line-height="__LINE_HEIGHT__">
+    <div class="global-loading-indicator" role="status" aria-label="Loading"><span></span></div>
+    <div class="title-bar">
+        <div class="nav-area">
+            <button class="nav-btn" id="prevBtn" title="Previous (older)">◀</button>
+            <span class="counter" id="counter"></span>
+            <button class="nav-btn" id="nextBtn" title="Next (newer)">▶</button>
+        </div>
+        <div class="zoom-controls" aria-label="Zoom controls">
+            <button class="zoom-btn" id="zoomOutBtn" title="Zoom out (Cmd/Ctrl -)">−</button>
+            <button class="zoom-btn" id="zoomResetBtn" title="Reset zoom">100%</button>
+            <button class="zoom-btn" id="zoomInBtn" title="Zoom in (Cmd/Ctrl +)">+</button>
+        </div>
+        <div style="align-items:center;display:flex;gap:6px">
+            <button class="undo-btn" id="undoBtn">↩ Undo</button>
+            <button class="view-toggle" id="viewToggle">Unified</button>
+            
+        </div>
+    </div>
+
+    <div class="timeline-strip" id="timelineStrip"></div>
+    <div id="hoverTooltip" role="tooltip"></div>
+
+    <div class="diff-container" tabindex="-1">
+        <div class="loading-indicator" role="status" aria-label="Loading"><span></span></div>
+        <button class="scroll-top-btn" id="scrollTopBtn" title="Scroll to top" aria-label="Scroll to top"><img src="__SCROLL_TOP_ICON_URI__" alt=""></button>
+        <div class="diff-pane" id="leftPane">
+            <div class="code-lines" id="leftLines"></div>
+            <button class="restore-btn" id="restoreBtn" hidden>Restore This Version</button>
+        </div>
+        <div class="diff-pane" id="rightPane">
+            <div class="code-lines" id="rightLines"></div>
+        </div>
+        <div class="unified-pane" id="unifiedPane">
+            <div class="code-lines" id="unifiedLines"></div>
+            <button class="restore-btn" id="unifiedRestoreBtn" hidden>Restore This Version</button>
+        </div>
+    </div>
+
+<script src="__SCRIPT_URI__"></script>
+</body>
+</html>

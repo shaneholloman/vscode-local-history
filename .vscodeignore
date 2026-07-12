@@ -1,9 +1,7 @@
-.vscode/**
 typings/**
 src/**
 **/*.map
-.git*
+.*/
 *.vsix
 **/.eslintrc.json
-.history
 .DS_Store

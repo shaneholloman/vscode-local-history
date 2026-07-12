@@ -25,3 +25,17 @@
 ## 0.0.5
 
 - update rdme, thanx @shaneholloman
+
+## 0.1.0
+
+- upgrade vscode to v110 + deps
+- fix absolute path normalization @Cinabutts
+- add visual diff webview for history navigator (side-by-side & unified)
+    - use existing vscode configs ex`"line hight, diff editor, etc.."
+    - use active theme colors
+    - hunk add/remove support + undo stack
+    - zoom control
+    - right/left navigate history
+    - up/down scroll vertically
+    - direct jump & restore snapshot from the view
+    - line & word diff render

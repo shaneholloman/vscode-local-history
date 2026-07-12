@@ -1,16 +1,18 @@
-import * as vscode from 'vscode';
-import { HistoryController } from './Provider/Controller';
-import HistoryTreeProvider from './Provider/HistoryTreeProvider';
-import * as utils from './utils';
+import * as vscode from 'vscode'
+import {HistoryController} from './Provider/Controller'
+import HistoryTreeProvider from './Provider/HistoryTreeProvider'
+import {TimelineProvider} from './Provider/TimelineProvider'
+import * as utils from './utils'
 
 /**
 * Activate the extension.
 */
 export function activate(context: vscode.ExtensionContext) {
-    utils.readConfig();
+    utils.readConfig()
 
     // Commands
-    const controller = new HistoryController();
+    const controller = new HistoryController()
+    const openTimeline = (uri?: vscode.Uri) => new TimelineProvider(controller, context.extensionUri).open(uri)
 
     context.subscriptions.push(
         vscode.commands.registerTextEditorCommand(`${utils.CMND_NAME}.showAll`, controller.showAll, controller),
@@ -18,10 +20,19 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerTextEditorCommand(`${utils.CMND_NAME}.compareToActive`, controller.compareToActive, controller),
         vscode.commands.registerTextEditorCommand(`${utils.CMND_NAME}.compareToCurrent`, controller.compareToCurrent, controller),
         vscode.commands.registerTextEditorCommand(`${utils.CMND_NAME}.compareToPrevious`, controller.compareToPrevious, controller),
-    );
+        vscode.commands.registerCommand(`${utils.CMND_NAME}.zoomIn`, TimelineProvider.zoomIn),
+        vscode.commands.registerCommand(`${utils.CMND_NAME}.zoomOut`, TimelineProvider.zoomOut),
+        vscode.commands.registerCommand(`${utils.CMND_NAME}.resetZoom`, TimelineProvider.resetZoom),
+        vscode.commands.registerCommand(`${utils.CMND_NAME}.undo`, TimelineProvider.undo),
+        vscode.commands.registerCommand('treeLocalHistory.openTimeline', async() => {
+            await vscode.commands.executeCommand('workbench.action.toggleSidebarVisibility')
+            openTimeline()
+        }),
+        vscode.commands.registerCommand(`${utils.CMND_NAME}.timelineForFile`, (uri) => openTimeline(uri)),
+    )
 
     // Tree
-    const treeProvider = new HistoryTreeProvider(controller);
+    const treeProvider = new HistoryTreeProvider(controller)
 
     context.subscriptions.push(
         vscode.window.registerTreeDataProvider('treeLocalHistory', treeProvider),
@@ -40,57 +51,57 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('treeLocalHistory.selectEntry', treeProvider.select, treeProvider),
         vscode.commands.registerCommand('treeLocalHistory.compareEntry', treeProvider.compare, treeProvider),
         vscode.commands.registerCommand('treeLocalHistory.restoreEntry', treeProvider.restore, treeProvider),
-    );
+    )
 
     // Events
     context.subscriptions.push(
         // Create first history before save document
         vscode.workspace.onWillSaveTextDocument((e: vscode.TextDocumentWillSaveEvent) => {
-            e.waitUntil(controller.saveFirstRevision(e.document));
+            e.waitUntil(controller.saveFirstRevision(e.document))
         }),
 
         // Create history on save document
-        vscode.workspace.onDidSaveTextDocument(async (document) => {
+        vscode.workspace.onDidSaveTextDocument(async(document) => {
             if (await checkIfAlreadySaved(context, document)) {
-                return;
+                return
             }
 
             controller.saveRevision(document)
                 .then((saveDocument) => {
                     // refresh viewer (if any)
                     if (saveDocument) {
-                        treeProvider.refresh();
+                        treeProvider.refresh()
                     }
-                });
+                })
         }),
 
         vscode.window.onDidChangeActiveTextEditor((e) => treeProvider.changeActiveFile(e)),
 
         vscode.workspace.onDidChangeConfiguration((configChangedEvent) => {
             if (configChangedEvent.affectsConfiguration(`${utils.PKG_CONFIG}.treeLocation`)) {
-                treeProvider.initLocation();
+                treeProvider.initLocation()
             }
 
             if (configChangedEvent.affectsConfiguration(utils.PKG_CONFIG)) {
-                utils.readConfig();
-                controller.clearSettings();
-                treeProvider.refresh();
+                utils.readConfig()
+                controller.clearSettings()
+                treeProvider.refresh()
             }
         }),
-    );
+    )
 }
 
 async function checkIfAlreadySaved(context, document) {
-    const fileName = document.fileName;
-    const currentData = await context.workspaceState.get(fileName);
-    const data = document.getText();
-    const check = currentData && currentData == data;
+    const fileName = document.fileName
+    const currentData = await context.workspaceState.get(fileName)
+    const data = document.getText()
+    const check = currentData && currentData == data
 
     if (!check) {
-        await context.workspaceState.update(fileName, data);
+        await context.workspaceState.update(fileName, data)
     }
 
-    return check;
+    return check
 }
 
 export function deactivate() { }

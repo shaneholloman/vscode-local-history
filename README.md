@@ -42,6 +42,7 @@ based on https://github.com/zabel-xyz/local-history which seems abandoned
 > "localHistory.maxDisplay": 10  // A max files to display with local history commands
 > "localHistory.saveDelay":   0  // A delay in seconds to save file in local history. {0: no delay}
 > "localHistory.dateLocale":     // The locale to use when displaying date (e.g.: "fr-CH" or "en-GB" or ...)
+> "localHistory.dateFormat":     // Date format: "tree" (28/05/2026, 20:07:00) or "timeline" (Thu, May 28, 2026, 08:07 PM)
 >
 > "localHistory.path":     // Specify another location for .history folder (null: use workspaceFolder)
 > This settings must be an absolute path.

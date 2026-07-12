@@ -3,9 +3,9 @@
     "displayName": "Local History (New)",
     "description": "Save files into local history",
     "publisher": "ctf0",
-    "version": "0.0.5",
+    "version": "0.1.0",
     "engines": {
-        "vscode": "^1.68.0"
+        "vscode": "^1.110.0"
     },
     "icon": "images/local-history.png",
     "repository": "https://github.com/ctf0/local-history.git",
@@ -132,10 +132,61 @@
             {
                 "command": "local-history.compareToPrevious",
                 "title": "Local History: Compare to previous"
+            },
+            {
+                "command": "local-history.zoomIn",
+                "title": "Local History: Zoom in timeline",
+                "icon": "$(zoom-in)",
+                "enablement": "localHistory:timelineActive"
+            },
+            {
+                "command": "local-history.zoomOut",
+                "title": "Local History: Zoom out timeline",
+                "icon": "$(zoom-out)",
+                "enablement": "localHistory:timelineActive"
+            },
+            {
+                "command": "local-history.resetZoom",
+                "title": "Local History: Reset timeline zoom",
+                "icon": "$(screen-normal)",
+                "enablement": "localHistory:timelineActive"
+            },
+            {
+                "command": "local-history.undo",
+                "title": "Local History: Undo timeline edit",
+                "enablement": "localHistory:timelineActive"
+            },
+            {
+                "command": "treeLocalHistory.openTimeline",
+                "title": "Open Timeline",
+                "when": false,
+                "icon": "$(history)"
+            },
+            {
+                "command": "local-history.timelineForFile",
+                "title": "Local History: Open Timeline",
+                "when": false,
+                "icon": "$(history)"
             }
         ],
         "menus": {
             "commandPalette": [
+                {
+                    "command": "local-history.zoomIn",
+                    "when": "false"
+                },
+                {
+                    "command": "local-history.zoomOut",
+                    "when": "false"
+                },
+                {
+                    "command": "local-history.resetZoom",
+                    "when": "false"
+                },
+                {
+                    "command": "treeLocalHistory.openTimeline",
+                    "when": "editorTextFocus && resourceScheme != untitled"
+                },
                 {
                     "command": "treeLocalHistory.forCurrentFile",
                     "when": "false"
@@ -157,13 +208,18 @@
                 },
                 {
                     "command": "treeLocalHistory.more",
-                    "when": "view == treeLocalHistory || view == treeLocalHistoryExplorer",
+                    "when": "(view == treeLocalHistory || view == treeLocalHistoryExplorer) && localHistory:hasItems",
                     "group": "navigation@2"
                 },
                 {
                     "command": "treeLocalHistory.deleteAll",
-                    "when": "view == treeLocalHistory || view == treeLocalHistoryExplorer",
+                    "when": "(view == treeLocalHistory || view == treeLocalHistoryExplorer) && localHistory:hasItems",
                     "group": "navigation@3"
+                },
+                {
+                    "command": "treeLocalHistory.openTimeline",
+                    "when": "(view == treeLocalHistory || view == treeLocalHistoryExplorer) && localHistory:hasItems",
+                    "group": "navigation@4"
                 },
                 {
                     "command": "treeLocalHistory.forCurrentFile",
@@ -243,6 +299,19 @@
                     "default": "en-GB",
                     "markdownDescription": "Specify locale to use when displaying date\n\n[ReadMore](https://www.techonthenet.com/js/language_tags.php)"
                 },
+                "localHistory.dateFormat": {
+                    "type": "string",
+                    "default": "tree",
+                    "enum": [
+                        "timeline",
+                        "tree"
+                    ],
+                    "markdownEnumDescriptions": [
+                        "ex.`Thu, May 28, 2026, 08:07 PM`",
+                        "ex.`28/05/2026, 20:07:00`"
+                    ],
+                    "description": "Choose the date format used to display the snapshot date-time"
+                },
                 "localHistory.exclude": {
                     "type": "array",
                     "default": [
@@ -303,11 +372,25 @@
                     "type": "boolean",
                     "default": false,
                     "description": "suppress not able to create .history directory in some workspaces"
+                },
+                "localHistory.defaultView": {
+                    "type": "string",
+                    "default": "side-by-side",
+                    "enum": [
+                        "side-by-side",
+                        "unified"
+                    ],
+                    "description": "Default diff view for the timeline"
+                },
+                "localHistory.fileBackedUndo": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Keep a full mirror copy in a tmp folder on each timeline apply/reject change so Undo can restore the previous version."
                 }
             }
         }
     },
-    "main": "./out/main",
+    "main": "./out/main.js",
     "scripts": {
         "vscode:prepublish": "npm run esbuild-base -- --pure:console.log --minify",
         "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/main.js --external:vscode --format=cjs --platform=node",
@@ -318,14 +401,16 @@
     "dependencies": {
         "anymatch": "3.1.3",
         "is-path-inside": "4.0.0",
-        "rimraf": "4.1.2"
+        "rimraf": "6.1.3",
+        "vscode-oniguruma": "^2.0.1",
+        "vscode-textmate": "^9.3.2"
     },
     "devDependencies": {
-        "@types/glob": "^8.0.1",
-        "@types/node": "18.11.19",
-        "@types/vscode": "^1.68.0",
-        "glob": "^8.1.0",
-        "esbuild": "^0.25.0",
-        "typescript": "4.9.5"
+        "@types/glob": "^9.0.0",
+        "@types/node": "26.1.1",
+        "@types/vscode": "^1.110.0",
+        "esbuild": "^0.28.1",
+        "glob": "^13.0.6",
+        "typescript": "7.0.2"
     }
 }
