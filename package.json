@@ -3,7 +3,7 @@
     "displayName": "Local History (New)",
     "description": "Save files into local history",
     "publisher": "ctf0",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "engines": {
         "vscode": "^1.110.0"
     },
@@ -165,7 +165,6 @@
             {
                 "command": "local-history.timelineForFile",
                 "title": "Local History: Open Timeline",
-                "when": false,
                 "icon": "$(history)"
             }
         ],
@@ -185,7 +184,11 @@
                 },
                 {
                     "command": "treeLocalHistory.openTimeline",
-                    "when": "editorTextFocus && resourceScheme != untitled"
+                    "when": "false"
+                },
+                {
+                    "command": "local-history.timelineForFile",
+                    "when": "editorIsOpen && resourceScheme != untitled"
                 },
                 {
                     "command": "treeLocalHistory.forCurrentFile",
@@ -406,7 +409,6 @@
         "vscode-textmate": "^9.3.2"
     },
     "devDependencies": {
-        "@types/glob": "^9.0.0",
         "@types/node": "26.1.1",
         "@types/vscode": "^1.110.0",
         "esbuild": "^0.28.1",

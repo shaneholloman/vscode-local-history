@@ -8,6 +8,9 @@ import * as utils from './utils'
 * Activate the extension.
 */
 export function activate(context: vscode.ExtensionContext) {
+    // Clean up any stale undo tmp files from previous sessions
+    TimelineProvider.cleanupAllUndoTmp()
+
     utils.readConfig()
 
     // Commands
@@ -104,4 +107,6 @@ async function checkIfAlreadySaved(context, document) {
     return check
 }
 
-export function deactivate() { }
+export function deactivate() {
+    TimelineProvider.cleanupAllUndoTmp()
+}

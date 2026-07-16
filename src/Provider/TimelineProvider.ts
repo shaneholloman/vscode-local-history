@@ -1000,6 +1000,29 @@ export class TimelineProvider {
         this._undoStacks.clear()
     }
 
+    /** Clean up any stale undo tmp dirs from past sessions (crashes, etc.) */
+    public static cleanupAllUndoTmp() {
+        const tmpDir = os.tmpdir()
+
+        try {
+            const entries = fs.readdirSync(tmpDir)
+
+            for (const entry of entries) {
+                if (entry.startsWith('local-history-undo-')) {
+                    const fullPath = path.join(tmpDir, entry)
+
+                    try {
+                        fs.rmSync(fullPath, {force: true, recursive: true})
+                    } catch {
+                        // best-effort; ignore files we can't remove
+                    }
+                }
+            }
+        } catch {
+            // best-effort; if we can't read tmpdir, skip cleanup
+        }
+    }
+
     private async restoreCurrentSnapshot() {
         const snapshotPath = this.snapshots[this.snapshotIndex]
 

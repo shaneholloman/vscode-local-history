@@ -4,6 +4,20 @@ based on https://github.com/zabel-xyz/local-history which seems abandoned
 
 - check [CHANGELOG](CHANGELOG.md)
 
+> ## Visual Timeline
+
+| Command             | Windows      | macOS       |
+| ------------------- | ------------ | ----------- |
+| Switch mode         | `Tab`        | `Tab`       |
+| Previous checkpoint | `←`          | `←`         |
+| Next checkpoint     | `→`          | `→`         |
+| Scroll              | `↑` / `↓`    | `↑` / `↓`   |
+| Close timeline      | `Esc`        | `Esc`       |
+| Zoom in             | `Ctrl` + `+` | `Cmd` + `+` |
+| Zoom out            | `Ctrl` + `-` | `Cmd` + `-` |
+| Reset zoom          | `Ctrl` + `0` | `Cmd` + `0` |
+| Undo                | `Ctrl` + `Z` | `Cmd` + `Z` |
+
 <br>
 
 ># Local History
