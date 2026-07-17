@@ -3,7 +3,7 @@
     "displayName": "Local History (New)",
     "description": "Save files into local history",
     "publisher": "ctf0",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "engines": {
         "vscode": "^1.110.0"
     },
@@ -160,11 +160,13 @@
                 "command": "treeLocalHistory.openTimeline",
                 "title": "Open Timeline",
                 "when": false,
+                "enablement": "!localHistory:timelineActive",
                 "icon": "$(history)"
             },
             {
                 "command": "local-history.timelineForFile",
                 "title": "Local History: Open Timeline",
+                "enablement": "!localHistory:timelineActive",
                 "icon": "$(history)"
             }
         ],
@@ -304,10 +306,10 @@
                 },
                 "localHistory.dateFormat": {
                     "type": "string",
-                    "default": "tree",
+                    "default": "timestamp",
                     "enum": [
-                        "timeline",
-                        "tree"
+                        "human",
+                        "timestamp"
                     ],
                     "markdownEnumDescriptions": [
                         "ex.`Thu, May 28, 2026, 08:07 PM`",

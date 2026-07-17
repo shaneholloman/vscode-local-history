@@ -8,6 +8,8 @@
     const nextBtn = document.getElementById('nextBtn')
     const restoreBtn = document.getElementById('restoreBtn')
     const unifiedRestoreBtn = document.getElementById('unifiedRestoreBtn')
+    const openFileBtn = document.getElementById('openFileBtn')
+    const unifiedOpenFileBtn = document.getElementById('unifiedOpenFileBtn')
     const undoBtn = document.getElementById('undoBtn')
     const viewToggle = document.getElementById('viewToggle')
     const zoomOutBtn = document.getElementById('zoomOutBtn')
@@ -18,7 +20,9 @@
     const loadingIndicator = document.querySelector('.loading-indicator')
     const hoverTooltip = document.getElementById('hoverTooltip')
     const leftPane = document.getElementById('leftPane')
+    const leftPaneBody = leftPane.querySelector('.diff-pane-body')
     const rightPane = document.getElementById('rightPane')
+    const rightPaneBody = rightPane.querySelector('.diff-pane-body')
     const unifiedPane = document.getElementById('unifiedPane')
     const timelineStrip = document.getElementById('timelineStrip')
     let webviewActive = true
@@ -42,13 +46,23 @@
     const breakpoint = Number(document.body.dataset.breakpoint)
     let userChoice = null // null = use default, true/false = user override
     let unified = document.body.dataset.initialUnified === 'true'
+    let requestedUnified = unified
     let zoom = 100
     let tooltipTarget = null
+    let metaPressed = false
     let currentSnapshotIndex = 0
     let totalSnapshotCount = 0
     let snapshotDates = []
     let cachedRightHtml = null
+    let webviewReady = false
+    const hunkAnimationMs = 180
     document.documentElement.style.setProperty('--line-height', document.body.dataset.lineHeight || '1.5em')
+
+    const SBS_BLOCKED_MSG = 'Side-by-side mode is not currently available. Disable "diffEditor.useInlineViewWhenSpaceIsLimited" or increase the editor width.'
+
+    function notifySbsBlocked() {
+        vscode.postMessage({type: 'show-notification', message: SBS_BLOCKED_MSG})
+    }
 
     function applyZoom() {
         document.body.style.zoom = zoom + '%'
@@ -90,13 +104,35 @@
         hoverTooltip.style.top = Math.max(8 / scale, top) + 'px'
     }
 
-    function showTooltip(target, x, y) {
+    function showTooltip(target, x, y, event) {
         tooltipTarget = target
-        hoverTooltip.textContent = target.dataset.tooltip
+
+        if (event) {
+            metaPressed = event.metaKey || event.ctrlKey
+        }
+
+        hoverTooltip.textContent = getTooltipText(target)
         hoverTooltip.classList.add('visible')
 
         const targetRect = target.getBoundingClientRect()
         positionTooltip(x ?? targetRect.left, y ?? targetRect.top)
+    }
+
+    function getTooltipText(target) {
+        let text = target.dataset.tooltip
+
+        if (metaPressed && target.closest('.clickable-hunk')) {
+            const lineNum = target.dataset.line
+            text = text.replace('this change', lineNum ? `this line (line ${lineNum})` : 'this line')
+        }
+
+        return text
+    }
+
+    function refreshTooltipText() {
+        if (tooltipTarget && hoverTooltip.classList.contains('visible')) {
+            hoverTooltip.textContent = getTooltipText(tooltipTarget)
+        }
     }
 
     function getTooltipTarget(event) {
@@ -109,7 +145,7 @@
         const target = getTooltipTarget(event)
 
         if (target) {
-            showTooltip(target, event.clientX, event.clientY)
+            showTooltip(target, event.clientX, event.clientY, event)
         }
     })
     document.addEventListener('pointermove', (event) => {
@@ -117,7 +153,7 @@
 
         if (target !== tooltipTarget) {
             if (target) {
-                showTooltip(target, event.clientX, event.clientY)
+                showTooltip(target, event.clientX, event.clientY, event)
             } else {
                 hideTooltip()
             }
@@ -146,9 +182,44 @@
     })
     document.addEventListener('focusout', hideTooltipOnLeave)
 
+    function onModifierKeyChange(e) {
+        const newState = e.metaKey || e.ctrlKey
+
+        if (newState !== metaPressed) {
+            metaPressed = newState
+            refreshTooltipText()
+        }
+    }
+
+    document.addEventListener('keydown', onModifierKeyChange)
+    document.addEventListener('keyup', onModifierKeyChange)
+    window.addEventListener('blur', () => {
+        if (metaPressed) {
+            metaPressed = false
+            refreshTooltipText()
+        }
+    })
+
     zoomOutBtn.addEventListener('click', () => changeZoom(-10))
     zoomResetBtn.addEventListener('click', () => setZoom(100))
     zoomInBtn.addEventListener('click', () => changeZoom(10))
+
+    function setViewMode(showUnified) {
+        unified = showUnified
+        diffContainer.classList.toggle('unified-mode', unified)
+        viewToggle.textContent = unified ? 'Side-by-side' : 'Unified'
+        viewToggle.dataset.tooltip = unified ? 'Switch to side-by-side mode' : 'Switch to unified mode'
+    }
+
+    function requestViewMode(showUnified) {
+        if (requestedUnified === showUnified && diffLoading) {
+            return
+        }
+
+        requestedUnified = showUnified
+        showDiffLoading()
+        vscode.postMessage({type: 'render-mode', mode: showUnified ? 'unified' : 'side-by-side'})
+    }
 
     function applyView() {
         let showUnified
@@ -161,19 +232,56 @@
             showUnified = document.body.dataset.initialUnified === 'true'
         }
 
-        unified = showUnified
-        diffContainer.classList.toggle('unified-mode', unified)
-        viewToggle.textContent = unified ? 'Side-by-side' : 'Unified'
+        if (!webviewReady) {
+            requestedUnified = showUnified
+            setViewMode(showUnified)
+        } else if (showUnified !== unified || showUnified !== requestedUnified) {
+            pendingScrollLine = captureVisibleLine()
+            requestViewMode(showUnified)
+
+            return
+        } else {
+            setViewMode(showUnified)
+            updateScrollButton()
+
+            return
+        }
+
         updateScrollButton()
         requestAnimationFrame(syncDiffLineHeights)
     }
 
-    viewToggle.addEventListener('click', () => {
+    function toggleViewMode() {
+        if (window.innerWidth < breakpoint && unified) {
+            notifySbsBlocked()
+
+            return
+        }
+
         userChoice = !unified
         applyView()
+    }
+
+    viewToggle.addEventListener('click', toggleViewMode)
+
+    let resizeTimer
+
+    window.addEventListener('resize', () => {
+        if (window.stripWidth !== document.body.clientWidth) {
+            window.stripWidth = document.body.clientWidth
+            clearTimeout(resizeTimer)
+
+            resizeTimer = setTimeout(() => {
+                if (requestedUnified === unified) {
+                    applyView()
+                } else {
+                    showDiffLoading()
+                    applyView()
+                }
+            }, 200)
+        }
     })
 
-    window.addEventListener('resize', applyView)
     window.addEventListener('scroll', hideTooltip, true)
     applyView()
 
@@ -186,48 +294,58 @@
         timelineStrip.scrollLeft -= event.deltaY
     }, {passive: false})
 
-    prevBtn.addEventListener('click', () => {
+    function navigate(direction, keyboard = false) {
+        if (!previewNavigation(direction)) {
+            return
+        }
+
         showDiffLoading()
-        vscode.postMessage({type: 'navigate', direction: 'prev'})
-    })
-    nextBtn.addEventListener('click', () => {
-        showDiffLoading()
-        vscode.postMessage({type: 'navigate', direction: 'next'})
-    })
+        const message = {type: 'navigate', direction}
+
+        if (keyboard) {
+            message.keyboard = true
+        }
+
+        vscode.postMessage(message)
+    }
+
+    prevBtn.addEventListener('click', () => navigate('prev'))
+    nextBtn.addEventListener('click', () => navigate('next'))
     restoreBtn.addEventListener('click', () => vscode.postMessage({type: 'restore'}))
     unifiedRestoreBtn.addEventListener('click', () => vscode.postMessage({type: 'restore'}))
-    undoBtn.addEventListener('click', () => vscode.postMessage({type: 'undo'}))
-    scrollTopBtn.addEventListener('click', () => {
-        const pane = getScrollPane()
-        animateScroll(pane, pane.scrollTop <= 0 ? pane.scrollHeight - pane.clientHeight : 0)
-    })
+    openFileBtn.addEventListener('click', () => vscode.postMessage({type: 'open-snapshot'}))
+    unifiedOpenFileBtn.addEventListener('click', () => vscode.postMessage({type: 'open-snapshot'}))
+    undoBtn.addEventListener('click', undo)
+    scrollTopBtn.addEventListener('click', () => scrollToTopBottom())
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && window.innerWidth >= breakpoint) {
+        if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
             e.preventDefault()
-            userChoice = !unified
-            applyView()
+            toggleViewMode()
         } else if (e.key === 'ArrowLeft') {
             e.preventDefault()
-
-            if (previewNavigation('prev')) {
-                showDiffLoading()
-                vscode.postMessage({type: 'navigate', direction: 'prev', keyboard: true})
-            }
+            navigate('prev', true)
         } else if (e.key === 'ArrowRight') {
             e.preventDefault()
-
-            if (previewNavigation('next')) {
-                showDiffLoading()
-                vscode.postMessage({type: 'navigate', direction: 'next', keyboard: true})
-            }
+            navigate('next', true)
+        } else if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowDown') {
+            e.preventDefault()
+            scrollToTopBottom('bottom')
+        } else if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowUp') {
+            e.preventDefault()
+            scrollToTopBottom('top')
         } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             e.preventDefault()
-            const pane = document.getElementById(unified ? 'unifiedPane' : 'leftPane')
+            const pane = unified ? unifiedPane : leftPaneBody
             pane.scrollBy({top: e.key === 'ArrowUp' ? -40 : 40})
         } else if (e.key === 'Escape') {
             e.preventDefault()
-            vscode.postMessage({type: 'close'})
+
+            if (ctxMenu.style.display === 'block') {
+                hideContextMenu()
+            } else {
+                vscode.postMessage({type: 'close'})
+            }
         } else if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+')) {
             e.preventDefault()
             changeZoom(10)
@@ -239,7 +357,7 @@
             setZoom(100)
         } else if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
             e.preventDefault()
-            vscode.postMessage({type: 'undo'})
+            undo()
         }
     })
 
@@ -269,27 +387,31 @@
         const leftRows = leftLines.children
         const rightRows = rightLines.children
 
+        // Reset first — write batch
         for (let i = 0; i < Math.max(leftRows.length, rightRows.length); i++) {
-            const leftRow = leftRows[i]
-            const rightRow = rightRows[i]
-
-            if (leftRow) {
-                leftRow.style.height = ''
+            if (leftRows[i]) {
+                leftRows[i].style.height = ''
             }
 
-            if (rightRow) {
-                rightRow.style.height = ''
+            if (rightRows[i]) {
+                rightRows[i].style.height = ''
             }
         }
 
+        // Read all heights — forces layout once
+        const heights = []
+
         for (let i = 0; i < Math.min(leftRows.length, rightRows.length); i++) {
-            const height = Math.max(
+            heights[i] = Math.max(
                 leftRows[i].getBoundingClientRect().height,
                 rightRows[i].getBoundingClientRect().height,
             )
+        }
 
-            leftRows[i].style.height = height + 'px'
-            rightRows[i].style.height = height + 'px'
+        // Write all heights — one paint trigger
+        for (let i = 0; i < heights.length; i++) {
+            leftRows[i].style.height = heights[i] + 'px'
+            rightRows[i].style.height = heights[i] + 'px'
         }
     }
 
@@ -333,22 +455,77 @@
 
         if (msg.type === 'viewState') {
             webviewActive = msg.active
-            setDiffLoadingVisible(webviewActive && diffLoading)
-            document.body.classList.toggle('loading', !msg.active)
-            document.body.classList.toggle('reactivating', !msg.active)
+
+            // The webview DOM persists (retainContextWhenHidden), so content
+            // is already correct on return. A side-by-side split keeps the
+            // panel visible -> never cloak. Only when the panel is REPLACED
+            // by another editor (the only visible tab) do we hide via cloak.
+            if (msg.visible) {
+                document.body.classList.remove('cloak')
+            } else {
+                document.body.classList.add('cloak')
+            }
 
             if (msg.active) {
+                pendingScrollRestore = captureScrollPosition()
                 requestAnimationFrame(() => {
                     applyView()
                     updateScrollButton()
-                    document.body.classList.remove('loading', 'reactivating')
                 })
             }
 
             return
         }
 
+        if (msg.type === 'action-result') {
+            if (!msg.applied) {
+                lastHunkAction = null
+                pendingUndoAnimation = null
+                clearHunkAnimations()
+            }
+
+            return
+        }
+
+        if (msg.type === 'undo-command') {
+            undo()
+
+            return
+        }
+
         if (msg.type === 'render') {
+            if (totalSnapshotCount > 0 && msg.snapshotIndex !== currentSnapshotIndex) {
+                return
+            }
+
+            const renderedUnified = msg.mode === 'unified'
+
+            if (renderedUnified !== requestedUnified) {
+                return
+            }
+
+            setViewMode(renderedUnified)
+
+            // Capture expanded regions before DOM is replaced
+            const expandedRegions = new Set()
+            document.querySelectorAll('.region-block.expanded').forEach((block) => {
+                expandedRegions.add(block.dataset.region)
+            })
+
+            const scrollRestore = pendingScrollRestore
+            const scrollLine = pendingScrollLine
+            const undoAnimation = pendingUndoAnimation
+            pendingScrollRestore = null
+            pendingScrollLine = null
+            pendingUndoAnimation = null
+            clearHunkAnimations()
+
+            if (!scrollRestore && scrollLine === null) {
+                leftPaneBody.scrollTop = 0
+                rightPaneBody.scrollTop = 0
+                unifiedPane.scrollTop = 0
+            }
+
             leftLines.innerHTML = msg.leftHtml
 
             if (msg.rightHtml !== cachedRightHtml) {
@@ -357,6 +534,11 @@
             }
 
             unifiedLines.innerHTML = msg.unifiedHtml
+
+            if (undoAnimation) {
+                animateUndo(undoAnimation)
+            }
+
             updateLineNumberGutter()
             updateNavigation(msg)
             diffContainer.classList.toggle('same-content', !msg.hasChanges)
@@ -365,11 +547,141 @@
             unifiedRestoreBtn.hidden = !msg.hasChanges
             undoBtn.classList.toggle('visible', msg.hasUndo)
 
+            unified = requestedUnified
             diffContainer.focus()
             hideDiffLoading()
             requestAnimationFrame(() => {
+                // Restore expanded regions — suppress transition so the snap from
+                // height:0 (fresh HTML) to full height is invisible.
+                expandedRegions.forEach((regionId) => {
+                    document.querySelectorAll(`.region-block[data-region="${regionId}"]`).forEach((block) => {
+                        block.style.transition = 'none'
+                        block.classList.add('expanded')
+                        block.style.height = block.scrollHeight + 'px'
+
+                        const hideLabel = 'Hide ' + (document.querySelector(`.unchanged-region[data-region="${regionId}"]`)?.dataset.count || '?') + ' unchanged lines'
+                        document.querySelectorAll(`.clickable-region[data-region="${regionId}"]`).forEach((button) => {
+                            button.dataset.tooltip = hideLabel
+                            button.setAttribute('aria-label', hideLabel)
+                        })
+                        document.querySelectorAll(`.hidden-label[data-region-label="${regionId}"]`).forEach((labelEl) => {
+                            labelEl.textContent = hideLabel
+                        })
+                    })
+                })
+
                 syncDiffLineHeights()
-                document.body.classList.remove('loading')
+
+                if (scrollLine !== null) {
+                    const container = unified ? unifiedLines : leftLines
+                    const lineNum = scrollLine.line
+                    let target = container.querySelector(`.line[data-line="${lineNum}"]`)
+
+                    if (!target) {
+                        let bestEl = null, bestDiff = Infinity
+
+                        for (const el of container.querySelectorAll('.line[data-line]')) {
+                            const ln = parseInt(el.getAttribute('data-line'))
+                            const diff = Math.abs(ln - lineNum)
+
+                            if (diff < bestDiff) {
+                                bestDiff = diff; bestEl = el
+                            }
+                        }
+
+                        target = bestEl
+                    }
+
+                    if (target) {
+                        const pane = unified ? unifiedPane : leftPaneBody
+                        const paneRect = pane.getBoundingClientRect()
+                        const targetRect = target.getBoundingClientRect()
+                        const currentOffset = targetRect.top - paneRect.top
+                        pane.scrollTop += currentOffset - scrollLine.topOffset
+                    }
+                } else if (scrollRestore) {
+                    leftPaneBody.scrollTop = scrollRestore.leftTop
+                    leftPaneBody.scrollLeft = scrollRestore.leftLeft
+                    rightPaneBody.scrollTop = scrollRestore.rightTop
+                    rightPaneBody.scrollLeft = scrollRestore.rightLeft
+                    unifiedPane.scrollTop = scrollRestore.unifiedTop
+                    unifiedPane.scrollLeft = scrollRestore.unifiedLeft
+                } else if (msg.initialCursorLine) {
+                    requestAnimationFrame(() => {
+                        setTimeout(() => {
+                            const container = unified ? unifiedLines : rightLines
+                            let target = container.querySelector(`.line[data-line="${msg.initialCursorLine}"]`)
+
+                            if (!target) {
+                                let bestEl = null, bestDiff = Infinity
+
+                                for (const el of container.querySelectorAll('.line[data-line]')) {
+                                    const ln = parseInt(el.getAttribute('data-line'))
+                                    const diff = Math.abs(ln - msg.initialCursorLine)
+
+                                    if (diff < bestDiff) {
+                                        bestDiff = diff; bestEl = el
+                                    }
+                                }
+
+                                target = bestEl
+                            }
+
+                            if (target) {
+                                const collapsedRegion = target.closest('.region-block:not(.expanded)')
+
+                                if (collapsedRegion) {
+                                    const regionId = collapsedRegion.dataset.region
+
+                                    document.querySelectorAll(`.region-block[data-region="${regionId}"]`).forEach((block) => {
+                                        block.classList.add('expanded')
+                                        block.style.height = block.scrollHeight + 'px'
+                                    })
+
+                                    const hideLabel = 'Hide ' + (document.querySelector(`.unchanged-region[data-region="${regionId}"]`)?.dataset.count || '?') + ' unchanged lines'
+
+                                    document.querySelectorAll(`.clickable-region[data-region="${regionId}"]`).forEach((button) => {
+                                        button.dataset.tooltip = hideLabel
+                                        button.setAttribute('aria-label', hideLabel)
+                                    })
+                                    document.querySelectorAll(`.hidden-label[data-region-label="${regionId}"]`).forEach((labelEl) => {
+                                        labelEl.textContent = hideLabel
+                                    })
+                                }
+
+                                const doFlash = () => {
+                                    const flashEl = (el) => {
+                                        el.classList.add('cursor-flash')
+                                        el.addEventListener('animationend', () => el.classList.remove('cursor-flash'), {once: true})
+                                    }
+
+                                    flashEl(target)
+
+                                    if (!unified && container === rightLines) {
+                                        const pair = leftLines.querySelector(`.line[data-line="${target.getAttribute('data-line')}"]`)
+                                        pair && flashEl(pair)
+                                    }
+                                }
+
+                                const scrollToTarget = () => {
+                                    const pane = unified ? unifiedPane : rightPaneBody
+                                    const paneRect = pane.getBoundingClientRect()
+                                    const targetRect = target.getBoundingClientRect()
+                                    const targetScroll = pane.scrollTop + targetRect.top - paneRect.top - pane.clientHeight / 3
+                                    animateScroll(pane, targetScroll, () => setTimeout(doFlash, 50))
+                                }
+
+                                if (collapsedRegion) {
+                                    setTimeout(scrollToTarget, 50)
+                                } else {
+                                    scrollToTarget()
+                                }
+                            }
+                        }, 150)
+                    })
+                }
+
+                document.body.classList.remove('cloak')
             })
         }
     })
@@ -389,8 +701,9 @@
         const track = document.createElement('div')
         track.className = 'timeline-track'
         timelineStrip.innerHTML = ''
-        dates.slice().reverse().forEach((label, visualIndex) => {
-            const i = dates.length - visualIndex - 1
+
+        for (let i = dates.length - 1; i >= 0; i--) {
+            const label = dates[i]
             const point = document.createElement('button')
             point.className = 'timeline-point' + (i === activeIdx ? ' active' : '')
             point.type = 'button'
@@ -410,11 +723,13 @@
                     return
                 }
 
+                currentSnapshotIndex = i
                 showDiffLoading()
                 vscode.postMessage({type: 'goto', index: i})
             })
             track.appendChild(point)
-        })
+        }
+
         const rail = document.createElement('div')
         rail.className = 'timeline-rail'
         track.appendChild(rail)
@@ -423,24 +738,155 @@
     }
 
     function revealActivePoint(activeIdx) {
-        timelineStrip.querySelectorAll('.timeline-point').forEach((point) => {
-            if (Number(point.dataset.index) === activeIdx) {
-                point.scrollIntoView({block: 'nearest', inline: 'nearest'})
-            }
-        })
+        const point = timelineStrip.querySelector(`.timeline-point[data-index="${activeIdx}"]`)
+        point?.scrollIntoView({block: 'nearest', inline: 'nearest'})
     }
 
     const activatingHunks = new Set()
-    const regionAnimations = new Map()
+    const pendingHunkActions = new Set()
+    const pendingReverseAnimations = new Set()
+    let pendingScrollRestore = null
+    let pendingScrollLine = null
+    let pendingUndoAnimation = null
+    let lastHunkAction = null
+    let regionToggleTimer = 0
+
+    function clearHunkAnimations() {
+        pendingHunkActions.forEach((timer) => window.clearTimeout(timer))
+        pendingHunkActions.clear()
+        pendingReverseAnimations.forEach((timer) => window.clearTimeout(timer))
+        pendingReverseAnimations.clear()
+        pendingScrollRestore = null
+        activatingHunks.clear()
+        document.querySelectorAll('.hunk-changing, .hunk-reversing').forEach((line) => {
+            line.classList.remove('hunk-changing', 'hunk-reversing')
+        })
+    }
+
+    function captureScrollPosition() {
+        return {
+            leftTop     : leftPaneBody.scrollTop,
+            leftLeft    : leftPaneBody.scrollLeft,
+            rightTop    : rightPaneBody.scrollTop,
+            rightLeft   : rightPaneBody.scrollLeft,
+            unifiedTop  : unifiedPane.scrollTop,
+            unifiedLeft : unifiedPane.scrollLeft,
+        }
+    }
+
+    function captureVisibleLine() {
+        const activePane = unified ? unifiedPane : leftPaneBody
+        const container = unified ? unifiedLines : leftLines
+        const paneTop = activePane.getBoundingClientRect().top
+
+        for (const el of container.querySelectorAll('.line[data-line]')) {
+            if (el.classList.contains('unchanged-region')) {
+                continue
+            }
+
+            if (el.closest('.region-block:not(.expanded)')) {
+                continue
+            }
+
+            const rect = el.getBoundingClientRect()
+
+            if (rect.height === 0) {
+                continue
+            }
+
+            if (rect.bottom > paneTop) {
+                return {
+                    line      : parseInt(el.getAttribute('data-line')),
+                    topOffset : rect.top - paneTop,
+                }
+            }
+        }
+
+        return null
+    }
+
+    function restoreScrollLine(capture) {
+        if (!capture) {
+            return
+        }
+
+        const pane = unified ? unifiedPane : leftPaneBody
+        const container = unified ? unifiedLines : leftLines
+        const target = container.querySelector(`.line[data-line="${capture.line}"]`)
+
+        if (target) {
+            const paneRect = pane.getBoundingClientRect()
+            const targetRect = target.getBoundingClientRect()
+            const currentOffset = targetRect.top - paneRect.top
+            pane.scrollTop += currentOffset - capture.topOffset
+        }
+    }
+
+    function undo() {
+        pendingScrollRestore = captureScrollPosition()
+        pendingUndoAnimation = lastHunkAction
+        lastHunkAction = null
+        vscode.postMessage({type: 'undo'})
+    }
+
+    function scheduleHunkAction(actionMessage) {
+        const timer = window.setTimeout(() => {
+            pendingHunkActions.delete(timer)
+            pendingScrollRestore = captureScrollPosition()
+            lastHunkAction = actionMessage
+            vscode.postMessage(actionMessage)
+        }, hunkAnimationMs)
+        pendingHunkActions.add(timer)
+    }
+
+    function animateUndo(actionMessage) {
+        const selector = actionMessage.type === 'apply-line'
+            ? `.clickable-hunk[data-hunk="${actionMessage.hunkIndex}"][data-i="${actionMessage.alignedIndex}"]`
+            : `.clickable-hunk[data-hunk="${actionMessage.index}"]`
+        const lines = document.querySelectorAll(selector)
+
+        lines.forEach((line) => line.classList.add('hunk-reversing'))
+
+        if (lines.length === 0) {
+            return
+        }
+
+        const timer = window.setTimeout(() => {
+            pendingReverseAnimations.delete(timer)
+            lines.forEach((line) => line.classList.remove('hunk-reversing'))
+        }, hunkAnimationMs)
+        pendingReverseAnimations.add(timer)
+    }
+
     let syncing = false
     let smoothScrollSource = null
     let smoothScrollTarget = 0
     let scrollAnimationFrame = 0
 
     function getScrollPane() {
-        return unified
-            ? unifiedPane
-            : diffContainer.classList.contains('same-content') ? rightPane : leftPane
+        if (unified) {
+            return unifiedPane
+        }
+
+        return diffContainer.classList.contains('same-content') ? rightPaneBody : leftPaneBody
+    }
+
+    function scrollToTopBottom(to) {
+        const pane = getScrollPane()
+        const atTop = pane.scrollTop <= 0
+
+        if (to === 'top') {
+            if (!atTop) {
+                animateScroll(pane, 0)
+            }
+        } else if (to === 'bottom') {
+            if (pane.scrollTop < pane.scrollHeight - pane.clientHeight) {
+                animateScroll(pane, pane.scrollHeight - pane.clientHeight)
+            }
+        } else {
+            // toggle (button click)
+            animateScroll(pane, atTop ? pane.scrollHeight - pane.clientHeight : 0)
+        }
     }
 
     function updateScrollButton() {
@@ -448,18 +894,27 @@
 
         if (pane.scrollHeight <= pane.clientHeight) {
             scrollTopBtn.classList.add('hidden')
+
             return
         }
 
         scrollTopBtn.classList.remove('hidden')
         const atTop = pane.scrollTop <= 0
         scrollTopBtn.classList.toggle('scroll-bottom', atTop)
-        scrollTopBtn.title = atTop ? 'Scroll to bottom' : 'Scroll to top'
-        scrollTopBtn.setAttribute('aria-label', scrollTopBtn.title)
+        scrollTopBtn.dataset.tooltip = atTop ? 'Scroll to bottom' : 'Scroll to top'
+        scrollTopBtn.setAttribute('aria-label', scrollTopBtn.dataset.tooltip)
     }
 
-    function animateScroll(pane, target) {
+    function animateScroll(pane, target, onDone) {
         cancelAnimationFrame(scrollAnimationFrame)
+        target = Math.max(0, Math.min(target, pane.scrollHeight - pane.clientHeight))
+
+        if (target === pane.scrollTop) {
+            onDone?.()
+
+            return
+        }
+
         smoothScrollSource = pane
         smoothScrollTarget = target
         const start = pane.scrollTop
@@ -471,6 +926,8 @@
 
             if (progress < 1) {
                 scrollAnimationFrame = requestAnimationFrame(step)
+            } else {
+                onDone?.()
             }
         }
 
@@ -497,8 +954,8 @@
         updateScrollButton()
     }
 
-    leftPane.addEventListener('scroll', () => handlePaneScroll(leftPane, rightPane), {passive: true})
-    rightPane.addEventListener('scroll', () => handlePaneScroll(rightPane, leftPane), {passive: true})
+    leftPaneBody.addEventListener('scroll', () => handlePaneScroll(leftPaneBody, rightPaneBody), {passive: true})
+    rightPaneBody.addEventListener('scroll', () => handlePaneScroll(rightPaneBody, leftPaneBody), {passive: true})
     unifiedPane.addEventListener('scroll', updateScrollButton, {passive: true})
 
     function animateAndActivate(line) {
@@ -512,57 +969,55 @@
         document.querySelectorAll('.clickable-hunk[data-hunk="' + hunkIndex + '"]').forEach((hunkLine) => {
             hunkLine.classList.add('hunk-changing')
         })
-        vscode.postMessage({
+        scheduleHunkAction({
             type  : line.dataset.action === 'add' ? 'apply-hunk' : 'reject-hunk',
             index : parseInt(hunkIndex),
         })
-        window.setTimeout(() => {
-            activatingHunks.delete(hunkIndex)
-            document.querySelectorAll('.clickable-hunk[data-hunk="' + hunkIndex + '"]').forEach((hunkLine) => {
-                hunkLine.classList.remove('hunk-changing')
-            })
-        }, 180)
     }
 
-    function animateRegionLine(line, hide) {
-        regionAnimations.get(line)?.cancel()
+    function animateAndActivateLine(line) {
+        const hunkIndex = line.dataset.hunk
+        const alignedIndex = parseInt(line.dataset.i)
+        const action = line.dataset.action
 
-        if (!hide) {
-            line.classList.remove('unchanged-hidden')
+        if (isNaN(alignedIndex) || activatingHunks.has(hunkIndex + '-' + alignedIndex)) {
+            return
         }
 
-        line.style.minHeight = '0px'
-
-        const height = hide ? line.getBoundingClientRect().height : line.scrollHeight
-        const animation = line.animate([
-            {height: (hide ? height : 0) + 'px', opacity: hide ? 1 : 0},
-            {height: (hide ? 0 : height) + 'px', opacity: hide ? 0 : 1},
-        ], {duration: 200, easing: 'ease'})
-
-        regionAnimations.set(line, animation)
-
-        animation.onfinish = () => {
-            if (regionAnimations.get(line) !== animation) {
-                return
-            }
-
-            if (hide) {
-                line.classList.add('unchanged-hidden')
-            }
-
-            line.style.minHeight = ''
-            syncDiffLineHeights()
-            regionAnimations.delete(line)
-        }
+        const key = hunkIndex + '-' + alignedIndex
+        activatingHunks.add(key)
+        line.classList.add('hunk-changing')
+        scheduleHunkAction({
+            type      : 'apply-line',
+            hunkIndex : parseInt(hunkIndex),
+            alignedIndex,
+            action,
+        })
     }
 
     function toggleRegion(toggle) {
         const region = toggle.dataset.region
-        const lines = document.querySelectorAll('.line[data-region="' + region + '"]:not(.clickable-region)')
-        const hide = lines.length > 0 && !lines[0].classList.contains('unchanged-hidden')
-        const label = (hide ? 'Show' : 'Hide') + ' ' + toggle.dataset.count + ' unchanged lines'
+        const blocks = document.querySelectorAll('.region-block[data-region="' + region + '"]')
+        const expanded = blocks.length > 0 && blocks[0].classList.contains('expanded')
+        const label = (expanded ? 'Show' : 'Hide') + ' ' + toggle.dataset.count + ' unchanged lines'
+        const pane = toggle.closest('.diff-pane-body') || getScrollPane()
+        window.clearTimeout(regionToggleTimer)
 
-        lines.forEach((line) => animateRegionLine(line, hide))
+        blocks.forEach((block) => {
+            if (expanded) {
+                const currentHeight = block.getBoundingClientRect().height
+                block.style.height = currentHeight + 'px'
+                block.offsetHeight
+                block.classList.remove('expanded')
+                block.style.height = '0'
+            } else {
+                block.classList.add('expanded')
+                block.style.height = '0'
+                block.offsetHeight
+                block.style.height = block.scrollHeight + 'px'
+            }
+        })
+
         document.querySelectorAll('.clickable-region[data-region="' + region + '"]').forEach((button) => {
             button.dataset.tooltip = label
             button.setAttribute('aria-label', label)
@@ -570,14 +1025,35 @@
         document.querySelectorAll('.hidden-label[data-region-label="' + region + '"]').forEach((labelEl) => {
             labelEl.textContent = label
         })
+
+        regionToggleTimer = window.setTimeout(() => requestAnimationFrame(() => {
+            blocks.forEach((block) => {
+                block.style.height = ''
+            })
+            syncDiffLineHeights()
+
+            const targetLine = expanded
+                ? pane.querySelector('.region-block[data-region="' + region + '"] + .line[data-line]')
+                : blocks[0]?.querySelector('.line[data-line]')
+
+            if (targetLine) {
+                const paneRect = pane.getBoundingClientRect()
+                const targetRect = targetLine.getBoundingClientRect()
+                pane.scrollTop += targetRect.top - paneRect.top
+            }
+        }), 350)
     }
 
-    function activateDiffTarget(target) {
+    function activateDiffTarget(target, event) {
         const hunk = target.closest('.clickable-hunk')
         const region = target.closest('.clickable-region')
 
         if (hunk) {
-            animateAndActivate(hunk)
+            if (event?.metaKey || event?.ctrlKey) {
+                animateAndActivateLine(hunk)
+            } else {
+                animateAndActivate(hunk)
+            }
         } else if (region) {
             toggleRegion(region)
         }
@@ -585,7 +1061,7 @@
 
     diffContainer.addEventListener('click', (event) => {
         if (event.target instanceof Element) {
-            activateDiffTarget(event.target)
+            activateDiffTarget(event.target, event)
         }
     })
     diffContainer.addEventListener('keydown', (event) => {
@@ -602,10 +1078,134 @@
         }
 
         event.preventDefault()
-        activateDiffTarget(event.target)
+        activateDiffTarget(event.target, event)
+    })
+
+    // Context menu for copy line / copy hunk
+    const ctxMenu = document.getElementById('ctxMenu')
+    let ctxTarget = null
+
+    function hideContextMenu() {
+        ctxMenu.style.display = 'none'
+        ctxTarget = null
+    }
+
+    function getLineContent(line) {
+        const ln = line.querySelector('.ln')
+
+        return ln ? ln.textContent : ''
+    }
+
+    function getHunkContent(hunkIndex, container) {
+        const lines = []
+        container.querySelectorAll(`.clickable-hunk[data-hunk="${hunkIndex}"]`).forEach((el) => {
+            lines.push(getLineContent(el))
+        })
+
+        // Trim leading and trailing empty lines
+        let start = 0, end = lines.length
+
+        while (start < end && lines[start] === '') {
+            start++
+        }
+
+        while (end > start && lines[end - 1] === '') {
+            end--
+        }
+
+        return lines.slice(start, end).join('\n')
+    }
+
+    diffContainer.addEventListener('contextmenu', (event) => {
+        if (!(event.target instanceof Element)) {
+            return
+        }
+
+        const line = event.target.closest('.line')
+
+        if (!line) {
+            return
+        }
+
+        event.preventDefault()
+
+        if (line.classList.contains('diff-empty')) {
+            return
+        }
+
+        ctxTarget = line
+
+        const isHunk = line.matches('.clickable-hunk')
+        const lineNum = line.getAttribute('data-line')
+        const copyLineBtn = ctxMenu.querySelector('[data-action="copy-line"]')
+        copyLineBtn.textContent = lineNum ? `Copy line (${lineNum})` : 'Copy line'
+
+        const hunkBtn = ctxMenu.querySelector('[data-action="copy-hunk"]')
+
+        if (isHunk) {
+            const hunkIdx = line.getAttribute('data-hunk')
+            const container = line.closest('.code-lines')
+            const hunkLines = container.querySelectorAll(`.clickable-hunk[data-hunk="${hunkIdx}"]`)
+            let min = Infinity, max = -Infinity
+
+            hunkLines.forEach((el) => {
+                const ln = parseInt(el.getAttribute('data-line'))
+
+                if (!isNaN(ln)) {
+                    min = Math.min(min, ln)
+                    max = Math.max(max, ln)
+                }
+            })
+
+            hunkBtn.textContent = min !== Infinity ? `Copy hunk (${min}~${max})` : 'Copy hunk'
+            hunkBtn.style.display = ''
+        } else {
+            hunkBtn.style.display = 'none'
+        }
+
+        ctxMenu.style.display = 'block'
+
+        const scale = zoom / 100
+        const menuWidth = ctxMenu.offsetWidth / scale
+        const menuHeight = ctxMenu.offsetHeight / scale
+        const viewW = window.innerWidth / scale
+        const viewH = window.innerHeight / scale
+
+        ctxMenu.style.left = Math.min(event.clientX / scale, viewW - menuWidth - 4) + 'px'
+        ctxMenu.style.top = Math.min(event.clientY / scale, viewH - menuHeight - 4) + 'px'
+    })
+
+    ctxMenu.addEventListener('click', (event) => {
+        const btn = event.target.closest('.ctx-item')
+
+        if (!btn || !ctxTarget) {
+            return
+        }
+
+        const action = btn.dataset.action
+
+        if (action === 'copy-line') {
+            const content = getLineContent(ctxTarget)
+            navigator.clipboard.writeText(content).catch(() => {})
+        } else if (action === 'copy-hunk') {
+            if (ctxTarget.matches('.clickable-hunk')) {
+                const container = ctxTarget.closest('.code-lines')
+                const content = getHunkContent(ctxTarget.dataset.hunk, container)
+                navigator.clipboard.writeText(content).catch(() => {})
+            }
+        }
+
+        hideContextMenu()
+    })
+
+    document.addEventListener('pointerdown', (event) => {
+        if (ctxMenu.style.display === 'block' && !ctxMenu.contains(event.target)) {
+            hideContextMenu()
+        }
     })
 
     // Let extension know we're ready
-    vscode.postMessage({type: 'ready'})
+    webviewReady = true
+    vscode.postMessage({type: 'ready', mode: requestedUnified ? 'unified' : 'side-by-side'})
     diffContainer.focus()
 })()

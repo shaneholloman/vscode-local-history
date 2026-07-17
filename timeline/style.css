@@ -4,6 +4,12 @@
         padding: 0;
     }
 
+    :focus,
+    :focus-visible {
+        box-shadow: none;
+        outline: none;
+    }
+
     :root {
         --bg: var(--vscode-editor-background, #1e1e1e);
         --fg: var(--vscode-editor-foreground, #d4d4d4);
@@ -21,6 +27,8 @@
         --scrollbar: var(--vscode-scrollbarSlider-background, #424242);
         --hover-bg: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground, transparent));
         --stripe: var(--vscode-editorIndentGuide-background, var(--border));
+        --cursor-flash-bg: var(--vscode-editor-findMatchHighlightBackground, rgb(234 92 0 / 20%));
+        --btn-bottom: 40px;
     }
 
     html,
@@ -36,31 +44,6 @@
     body {
         display: flex;
         flex-direction: column;
-    }
-
-    body.loading {
-        visibility: hidden;
-    }
-
-    .global-loading-indicator {
-        display: none;
-        height: 100vh;
-        left: 0;
-        place-items: center;
-        position: fixed;
-        top: 0;
-        visibility: hidden;
-        width: 100vw;
-        z-index: 100;
-    }
-
-    body.loading .global-loading-indicator {
-        display: grid;
-        visibility: visible;
-    }
-
-    body.loading.reactivating .global-loading-indicator {
-        visibility: hidden;
     }
 
     .loading-indicator {
@@ -80,7 +63,6 @@
         visibility: visible;
     }
 
-    .global-loading-indicator span,
     .loading-indicator span {
         animation: loading-spin 0.7s linear infinite;
         border: 2px solid var(--border);
@@ -116,6 +98,38 @@
         display: block;
     }
 
+    #ctxMenu {
+        background: var(--vscode-menu-background, var(--bg));
+        border: 1px solid var(--vscode-menu-border, var(--border));
+        border-radius: 6px;
+        box-shadow: var(--vscode-widget-shadow, 0 2px 8px rgb(0 0 0 / 35%));
+        display: none;
+        padding: 4px;
+        position: fixed;
+        z-index: 200;
+    }
+
+    .ctx-item {
+        background: transparent;
+        border: none;
+        color: var(--vscode-menu-foreground, var(--fg));
+        cursor: pointer;
+        display: block;
+        font-family: var(--vscode-font-family);
+        font-size: 13px;
+        line-height: 22px;
+        padding: 6px 12px;
+        text-align: left;
+        white-space: nowrap;
+        width: 100%;
+    }
+
+    .ctx-item:hover {
+        background: var(--vscode-menu-selectionBackground, var(--btn-bg));
+        border-radius: 4px;
+        color: var(--vscode-menu-selectionForeground, var(--btn-fg));
+    }
+
     /* Title bar */
     .title-bar {
         align-items: center;
@@ -125,7 +139,7 @@
         flex-shrink: 0;
         font-size: 12px;
         justify-content: space-between;
-        padding: 4px 12px;
+        padding: 8px 12px 4px;
         position: relative;
         user-select: none;
     }
@@ -200,7 +214,7 @@
     /* Diff panels */
     .diff-container {
         --line-number-digits: 1;
-        --line-number-width: max(36px, calc(var(--line-number-digits) * 1ch + 24px));
+        --line-number-width: calc(var(--line-number-digits) * 1ch + 24px);
 
         display: flex;
         flex: 1;
@@ -247,8 +261,17 @@
     }
 
     .diff-pane {
+        display: flex;
         flex: 1;
-        overflow: hidden auto;
+        flex-direction: column;
+        position: relative;
+    }
+
+    .diff-pane-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        overflow-anchor: none;
         position: relative;
     }
 
@@ -266,10 +289,6 @@
 
     #leftPane .line {
         flex-direction: row-reverse;
-    }
-
-    .diff-container:focus {
-        outline: none;
     }
 
     .same-content #leftPane {
@@ -338,30 +357,28 @@
         cursor: pointer;
     }
 
-    .unchanged-hidden {
-        max-height: 0 !important;
-        min-height: 0;
-        opacity: 0;
+    .region-block {
+        display: block;
+        height: 0;
         overflow: hidden;
-        pointer-events: none;
+        transition: height 0.3s ease;
     }
 
-    .line[data-region]:not(.clickable-region) {
-        overflow: hidden;
+    .region-block.expanded {
+        height: auto;
+    }
+
+    .region-inner {
+        min-height: 0;
     }
 
     .unchanged-region {
         background: var(--bg);
         color: var(--vscode-descriptionForeground, #888888);
         justify-content: center;
-        padding-left: var(--line-number-width);
         position: sticky;
         top: 0;
         z-index: 2;
-    }
-
-    .unchanged-region:focus {
-        outline: none;
     }
 
     .unchanged-region .hidden-label {
@@ -382,6 +399,7 @@
         display: none;
         flex: 1;
         overflow: auto;
+        overflow-anchor: none;
         position: relative;
     }
 
@@ -393,25 +411,22 @@
         display: none;
     }
 
+    .unified-mode .line:not(.unchanged-region) {
+        contain-intrinsic-size: var(--line-height);
+        content-visibility: auto;
+    }
+
     /* Restore button overlaid on snapshot pane */
     .restore-btn {
         background: var(--btn-bg);
         border: none;
         border-radius: var(--vscode-cornerRadius-medium);
-        bottom: 20px;
         color: var(--btn-fg);
         cursor: pointer;
         font-size: 12px;
         height: 32px;
         opacity: 0.9;
         padding: 8px;
-        position: fixed;
-        right: calc(50% + var(--line-number-width) / 2 + 20px);
-        z-index: 20;
-    }
-
-    .unified-mode .restore-btn {
-        right: 60px;
     }
 
     .restore-btn:hover {
@@ -419,12 +434,55 @@
         opacity: 1;
     }
 
+    .diff-actions {
+        bottom: var(--btn-bottom);
+        display: flex;
+        gap: 8px;
+        position: fixed;
+        right: calc(50% + var(--line-number-width) / 2 + 20px);
+        z-index: 20;
+    }
+
+    .unified-mode .diff-actions {
+        right: 60px;
+    }
+
+    .action-btn {
+        background: var(--btn-bg);
+        border: none;
+        border-radius: var(--vscode-cornerRadius-medium);
+        color: var(--btn-fg);
+        cursor: pointer;
+        font-size: 12px;
+        height: 32px;
+        opacity: 0.9;
+        padding: 8px;
+    }
+
+    .action-btn:hover {
+        background: var(--btn-hover);
+        opacity: 1;
+    }
+
+    .action-btn.icon-btn {
+        align-items: center;
+        display: inline-flex;
+        justify-content: center;
+        padding: 0;
+        width: 32px;
+    }
+
+    .action-btn.icon-btn img {
+        height: 16px;
+        width: 16px;
+    }
+
     .scroll-top-btn {
         align-items: center;
         background: var(--btn-bg);
         border: none;
         border-radius: var(--vscode-cornerRadius-medium);
-        bottom: 20px;
+        bottom: var(--btn-bottom);
         color: var(--btn-fg);
         cursor: pointer;
         display: flex;
@@ -454,17 +512,17 @@
     }
 
     /* Scrollbar */
-    .diff-pane::-webkit-scrollbar {
-        height: 8px;
-        width: 8px;
+    .diff-pane-body::-webkit-scrollbar {
+        height: 4px;
+        width: 4px;
     }
 
-    .diff-pane::-webkit-scrollbar-thumb {
+    .diff-pane-body::-webkit-scrollbar-thumb {
         background: var(--scrollbar);
         border-radius: var(--vscode-cornerRadius-medium);
     }
 
-    .diff-pane::-webkit-scrollbar-track {
+    .diff-pane-body::-webkit-scrollbar-track {
         background: transparent;
     }
 
@@ -472,11 +530,9 @@
     .timeline-strip {
         background: var(--title-bg);
         border-bottom: 1px solid var(--border);
-        border-top: 1px solid var(--border);
         flex-shrink: 0;
-        height: 100px;
+        min-height: 50px;
         overflow: auto hidden;
-        padding: 0 0 3px;
     }
 
     .timeline-track {
@@ -497,7 +553,7 @@
         pointer-events: none;
         position: absolute;
         right: 0;
-        top: calc(50% - 1px);
+        top: 7px;
         z-index: 1;
     }
 
@@ -515,11 +571,11 @@
         color: var(--fg);
         cursor: pointer;
         display: flex;
-        flex: 1 0 104px;
+        flex: 1 0 114px;
         flex-direction: column;
         font: inherit;
         height: 100%;
-        justify-content: center;
+        justify-content: flex-start;
         min-width: 0;
         padding: 0 4px;
         pointer-events: auto;
@@ -540,7 +596,6 @@
     }
 
     .timeline-point:hover .timeline-dot,
-    .timeline-point:focus-visible .timeline-dot,
     .timeline-point.active .timeline-dot {
         transform: scale(1.7);
     }
@@ -558,29 +613,20 @@
         position: absolute;
         right: 4px;
         text-align: center;
-        white-space: normal;
+        top: 18px;
+        white-space: break-spaces;
         width: calc(100% - 8px);
-    }
-
-    .timeline-point:nth-child(odd) .timeline-date {
-        bottom: calc(50% + 12px);
-    }
-
-    .timeline-point:nth-child(even) .timeline-date {
-        top: calc(50% + 12px);
     }
 
     .zoom-controls {
         align-items: center;
-        background: var(--hover-bg);
-        border-radius: 0 0 var(--vscode-cornerRadius-medium) var(--vscode-cornerRadius-medium);
+        background: var(--btn-bg);
+        border-radius: var(--vscode-cornerRadius-medium);
         display: flex;
         gap: 4px;
         justify-content: space-between;
         left: 50%;
         padding: 4px 8px;
-        position: absolute;
-        top: 0;
         transform: translateX(-50%);
         z-index: 1;
     }
@@ -597,7 +643,7 @@
     }
 
     .zoom-btn:hover {
-        background: var(--bg));
+        background: var(--bg);
         color: var(--fg);
     }
 
@@ -623,4 +669,44 @@
     .hunk-changing {
         animation: hunkChange 0.18s ease forwards;
         pointer-events: none;
+    }
+
+    @keyframes hunkReverse {
+        from {
+            opacity: 0;
+            transform: translateX(24px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+
+    .hunk-reversing {
+        animation: hunkReverse 0.18s ease forwards;
+        pointer-events: none;
+    }
+
+    .cloak {
+        visibility: hidden;
+    }
+
+    @keyframes cursor-flash {
+        0%,
+        100% {
+            background-color: transparent;
+        }
+
+        30% {
+            background-color: var(--cursor-flash-bg);
+        }
+
+        70% {
+            background-color: var(--cursor-flash-bg);
+        }
+    }
+
+    .line.cursor-flash {
+        animation: cursor-flash 0.4s ease-out 3;
     }

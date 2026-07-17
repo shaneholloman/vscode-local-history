@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import {HistoryController} from './Provider/Controller'
+import {HistoryController} from './libs/Controller'
 import HistoryTreeProvider from './Provider/HistoryTreeProvider'
 import {TimelineProvider} from './Provider/TimelineProvider'
 import * as utils from './utils'
@@ -15,7 +15,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Commands
     const controller = new HistoryController()
-    const openTimeline = (uri?: vscode.Uri) => new TimelineProvider(controller, context.extensionUri).open(uri)
+    const timeline = new TimelineProvider(controller, context.extensionUri)
+    const openTimeline = () => timeline.open()
 
     context.subscriptions.push(
         vscode.commands.registerTextEditorCommand(`${utils.CMND_NAME}.showAll`, controller.showAll, controller),
@@ -31,14 +32,23 @@ export function activate(context: vscode.ExtensionContext) {
             await vscode.commands.executeCommand('workbench.action.toggleSidebarVisibility')
             openTimeline()
         }),
-        vscode.commands.registerCommand(`${utils.CMND_NAME}.timelineForFile`, (uri) => openTimeline(uri)),
+        vscode.commands.registerCommand(`${utils.CMND_NAME}.timelineForFile`, () => openTimeline()),
     )
 
     // Tree
     const treeProvider = new HistoryTreeProvider(controller)
 
+    if (vscode.window.activeTextEditor) {
+        treeProvider.changeActiveFile(vscode.window.activeTextEditor)
+    }
+
+    const historyTreeView = vscode.window.createTreeView('treeLocalHistory', {
+        treeDataProvider : treeProvider,
+    })
+    treeProvider.setTreeView(historyTreeView)
+
     context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('treeLocalHistory', treeProvider),
+        historyTreeView,
         vscode.window.registerTreeDataProvider('treeLocalHistoryExplorer', treeProvider),
 
         vscode.commands.registerCommand('treeLocalHistory.deleteAll', treeProvider.deleteAll, treeProvider),

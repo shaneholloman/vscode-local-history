@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import * as utils from '../utils'
-import {HistoryController, IHistoryFileProperties} from './Controller'
-import {HistorySettings, IHistorySettings} from './Settings'
+import {HistoryController, IHistoryFileProperties} from '../libs/Controller'
+import {HistorySettings, IHistorySettings} from '../libs/Settings'
 
 const enum EHistoryTreeItem {
     None = 0,
@@ -25,9 +25,14 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
     // save historyItem structure to be able to redraw
     private tree = {}  // {yesterday: {grp: HistoryItem, items: HistoryItem[]}}
     private selection          : HistoryItem
+    private activeFilePath     : string | undefined
+    private treeView           : vscode.TreeView<HistoryItem> | undefined
     private noLimit = false
-    private date   // calculs result of relative date against now()
-    private format // function to format against locale
+    private date   // relative date cutoffs computed from now()
+    private format // date formatting function
+
+    private pendingRevealPath : string | undefined
+    private pendingRevealDate : Date | undefined
 
     public contentKind    : EHistoryTreeContentKind = 0
     private searchPattern : string
@@ -46,18 +51,46 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
         vscode.commands.executeCommand('setContext', 'localHistory:hasItems', hasItems)
     }
 
+    public isCurrentFile(file: vscode.Uri | undefined): boolean {
+        return file?.fsPath === this.activeFilePath
+    }
+
+    public setTreeView(view: vscode.TreeView<HistoryItem>) {
+        this.treeView = view
+    }
+
+    public getParent(element: HistoryItem): vscode.ProviderResult<HistoryItem> {
+        if (element.kind === EHistoryTreeItem.File && element.grp) {
+            return this.tree[element.grp]?.grp
+        }
+
+        return undefined
+    }
+
+    public findItemByPath(fsPath: string): HistoryItem | undefined {
+        for (const groupName of Object.keys(this.tree)) {
+            const group = this.tree[groupName]
+
+            if (group.items) {
+                for (const item of group.items) {
+                    if (item.resourceUri && item.resourceUri.fsPath === fsPath) {
+                        return item
+                    }
+                }
+            }
+        }
+
+        return undefined
+    }
+
     getSettingsItem(): HistoryItem {
-        // Node only for settings...
         switch (this.contentKind) {
             case EHistoryTreeContentKind.All:
                 return new HistoryItem(this, 'Search: all', EHistoryTreeItem.None, null, this.currentHistoryPath)
-                break
             case EHistoryTreeContentKind.Current:
                 return new HistoryItem(this, 'Search: current', EHistoryTreeItem.None, null, this.currentHistoryFile)
-                break
             case EHistoryTreeContentKind.Search:
                 return new HistoryItem(this, `Search: ${this.searchPattern}`, EHistoryTreeItem.None, null, this.searchPattern)
-                break
         }
     }
 
@@ -65,166 +98,152 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
         return element
     }
 
-    getChildren(element?: HistoryItem): Promise<HistoryItem[]> {
-        return new Promise((resolve) => {
-            // redraw
-            const keys = Object.keys(this.tree)
+    async getChildren(element?: HistoryItem): Promise<HistoryItem[]> {
+        const hasTreeData = Object.keys(this.tree).length > 0
 
-            if (keys && keys.length) {
-                if (!element) {
-                    const items: any = []
-                    items.push(this.getSettingsItem())
-                    keys.forEach((key) => items.push(this.tree[key].grp))
-
-                    return resolve(items)
-                } else if (this.tree[element.label].items) {
-                    return resolve(this.tree[element.label].items)
-                }
+        // Root level: return settings item + groups
+        if (!element) {
+            if (hasTreeData) {
+                return [this.getSettingsItem(), ...Object.keys(this.tree).map((key) => this.tree[key].grp)]
             }
 
-            // rebuild
-            const items: HistoryItem[] = []
+            // First load: fetch history files and build groups
+            if (!this.historyFiles) {
+                const document = vscode.window.activeTextEditor?.document
 
-            if (!element) { // root
-                if (!this.historyFiles) {
-                    if (!vscode.window.activeTextEditor || !vscode.window.activeTextEditor.document) {
-                        return resolve(items)
-                    }
-
-                    const filename = vscode.window.activeTextEditor.document.uri
-                    const settings = this.controller.getSettings(filename)
-
-                    this.loadHistoryFile(filename, settings)
-                        .then(() => {
-                            items.push(this.getSettingsItem())
-                            items.push(...this.loadHistoryGroups(this.historyFiles))
-                            resolve(items)
-                        })
-                } else {
-                    items.push(this.getSettingsItem())
-                    items.push(...this.loadHistoryGroups(this.historyFiles))
-                    resolve(items)
-                }
-            } else {
-                if (element.kind === EHistoryTreeItem.Group) {
-                    this.historyFiles[element.label].forEach((file) => {
-                        items.push(
-                            new HistoryItem(
-                                this,
-                                this.format(file),
-                                EHistoryTreeItem.File,
-                                vscode.Uri.file(file.file),
-                                element.label,
-                                true,
-                            ),
-                        )
-                    })
-                    this.tree[element.label].items = items
+                if (!document) {
+                    return []
                 }
 
-                resolve(items)
-            }
-        })
-    }
-
-    private loadHistoryFile(fileName: vscode.Uri, settings: IHistorySettings): Promise<object> {
-        return new Promise((resolve, reject) => {
-            let pattern
-
-            switch (this.contentKind) {
-                case EHistoryTreeContentKind.All:
-                    pattern = '**/*.*'
-                    break
-                case EHistoryTreeContentKind.Current:
-                    pattern = fileName.fsPath
-                    break
-                case EHistoryTreeContentKind.Search:
-                    pattern = this.searchPattern
-                    break
+                await this.loadHistoryFile(document.uri, this.controller.getSettings(document.uri))
             }
 
-            this.controller.findGlobalHistory(pattern, this.contentKind === EHistoryTreeContentKind.Current, settings, this.noLimit)
-                .then((findFiles) => {
-                    // Current file
-                    if (this.contentKind === EHistoryTreeContentKind.Current) {
-                        const historyFile = this.controller.decodeFile(fileName.fsPath, settings)
-                        this.currentHistoryFile = historyFile && historyFile.file
-                    }
+            const result = [this.getSettingsItem(), ...this.loadHistoryGroups(this.historyFiles)]
+            this.tryRevealPending()
 
-                    this.currentHistoryPath = settings.historyPath
+            return result
+        }
 
-                    // History files
-                    this.historyFiles = {}
+        // Child level: return pre-loaded items for a group
+        if (hasTreeData && this.tree[element.label]?.items) {
+            this.tryRevealPending()
 
-                    this.format = (file) => {
-                        const result = utils.formatDate(file.date, settings.dateLocale)
+            return this.tree[element.label].items
+        }
 
-                        if (this.contentKind !== EHistoryTreeContentKind.Current) {
-                            return `${file.name}${file.ext} (${result})`
-                        }
+        // Lazy-load group items from historyFiles
+        const items: HistoryItem[] = []
 
-                        return result
-                    }
-
-                    let grp = 'new'
-                    const files = findFiles
-
-                    if (files && files.length) {
-                        files.map((file) => this.controller.decodeFile(file, settings))
-                            .sort((f1, f2) => {
-                                if (!f1 || !f2) {
-                                    return 0
-                                }
-
-                                if (f1.date > f2.date) {
-                                    return -1
-                                }
-
-                                if (f1.date < f2.date) {
-                                    return 1
-                                }
-
-                                return f1.name.localeCompare(f2.name)
-                            })
-                            .forEach((file, index) => {
-                                if (file) {
-                                    if (grp !== 'Older') {
-                                        grp = this.getRelativeDate(file.date)
-
-                                        if (!this.historyFiles[grp]) {
-                                            this.historyFiles[grp] = [file]
-                                        } else {
-                                            this.historyFiles[grp].push(file)
-                                        }
-                                    } else {
-                                        this.historyFiles[grp].push(file)
-                                    }
-                                }
-                            })
-                    }
-
-                    return resolve(this.historyFiles)
-                })
-        })
-    }
-
-    private loadHistoryGroups(historyFiles: object): HistoryItem[] {
-        const items: any = []
-        const keys = historyFiles && Object.keys(historyFiles)
-
-        this.setHasItems(!!keys && keys.length > 0)
-
-        if (keys && keys.length > 0) {
-            keys.forEach((key) => {
-                const item = new HistoryItem(this, key, EHistoryTreeItem.Group)
-                this.tree[key] = {grp: item}
-                items.push(item)
+        if (element.kind === EHistoryTreeItem.Group && this.historyFiles?.[element.label]) {
+            this.historyFiles[element.label].forEach((file) => {
+                items.push(
+                    new HistoryItem(
+                        this,
+                        this.format(file),
+                        EHistoryTreeItem.File,
+                        vscode.Uri.file(file.file),
+                        element.label,
+                        true,
+                    ),
+                )
             })
-        } else {
-            items.push(new HistoryItem(this, 'No history', EHistoryTreeItem.None))
+            this.tree[element.label].items = items
+            this.tryRevealPending()
         }
 
         return items
+    }
+
+    private async loadHistoryFile(fileName: vscode.Uri, settings: IHistorySettings): Promise<object> {
+        let pattern
+
+        switch (this.contentKind) {
+            case EHistoryTreeContentKind.All:
+                pattern = '**/*.*'
+                break
+            case EHistoryTreeContentKind.Current:
+                pattern = fileName.fsPath
+                break
+            case EHistoryTreeContentKind.Search:
+                pattern = this.searchPattern
+                break
+        }
+
+        const findFiles = await this.controller.findGlobalHistory(
+            pattern,
+            this.contentKind === EHistoryTreeContentKind.Current,
+            settings,
+            this.noLimit,
+        )
+
+        if (this.contentKind === EHistoryTreeContentKind.Current) {
+            const historyFile = this.controller.decodeFile(fileName.fsPath, settings)
+            this.currentHistoryFile = historyFile && historyFile.file
+        }
+
+        this.currentHistoryPath = settings.historyPath
+        this.historyFiles = {}
+
+        this.format = (file) => {
+            const result = utils.formatDate(file.date, settings.dateLocale)
+
+            if (this.contentKind !== EHistoryTreeContentKind.Current) {
+                return `${file.name}${file.ext} (${result})`
+            }
+
+            return result
+        }
+
+        let group = 'new'
+        const files = findFiles
+            .map((file) => this.controller.decodeFile(file, settings))
+            .sort((f1, f2) => {
+                if (!f1 || !f2) {
+                    return 0
+                }
+
+                if (f1.date > f2.date) {
+                    return -1
+                }
+
+                if (f1.date < f2.date) {
+                    return 1
+                }
+
+                return f1.name.localeCompare(f2.name)
+            })
+
+        files.forEach((file) => {
+            if (!file) {
+                return
+            }
+
+            if (group !== 'Older') {
+                group = this.getRelativeDate(file.date)
+            }
+
+            this.historyFiles[group] = this.historyFiles[group] || []
+            this.historyFiles[group].push(file)
+        })
+
+        return this.historyFiles
+    }
+
+    private loadHistoryGroups(historyFiles: object): HistoryItem[] {
+        const historyGroupNames = Object.keys(historyFiles)
+
+        this.setHasItems(historyGroupNames.length > 0)
+
+        if (!historyGroupNames.length) {
+            return [new HistoryItem(this, 'No history', EHistoryTreeItem.None)]
+        }
+
+        return historyGroupNames.map((groupName) => {
+            const groupItem = new HistoryItem(this, groupName, EHistoryTreeItem.Group)
+            this.tree[groupName] = {grp: groupItem}
+
+            return groupItem
+        })
     }
 
     private getRelativeDate(fileDate: Date) {
@@ -237,12 +256,11 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
             const now = dt.getTime() / 1000
             const today = dt.setHours(0, 0, 0, 0) / 1000 // clear current hour
             this.date = {
-                now        : now,
-                today      : today,
-                week       : today - ((dt.getDay() || 7) - 1) * day, //  1st day of week (week start monday)
-                month      : dt.setDate(1) / 1000,        // 1st day of current month
-                eLastMonth : dt.setDate(0) / 1000,          // last day of previous month
-                lastMonth  : dt.setDate(1) / 1000,     // 1st day of previous month
+                now       : now,
+                today     : today,
+                week      : today - ((dt.getDay() || 7) - 1) * day, //  1st day of week (week start monday)
+                month     : dt.setDate(1) / 1000,        // 1st day of current month
+                lastMonth : dt.setDate(1) / 1000,     // 1st day of previous month
             }
         }
 
@@ -269,17 +287,75 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
         this._onDidChangeTreeData.fire(undefined)
     }
 
+    private tryRevealPending() {
+        if (!this.pendingRevealPath || !this.treeView) {
+            return
+        }
+
+        const item = this.findItemByPath(this.pendingRevealPath)
+
+        if (item) {
+            this.treeView.reveal(item, {select: true, focus: false, expand: true})
+            this.pendingRevealPath = undefined
+            this.pendingRevealDate = undefined
+
+            return
+        }
+
+        if (this.pendingRevealDate && this.historyFiles) {
+            const groupName = this.getRelativeDate(this.pendingRevealDate)
+            const groupItem = this.tree[groupName]?.grp
+
+            if (groupItem) {
+                this.treeView.reveal(groupItem, {select: false, focus: false, expand: true})
+
+                return
+            }
+        }
+
+        if (this.historyFiles) {
+            this.pendingRevealPath = undefined
+            this.pendingRevealDate = undefined
+        }
+    }
+
     public changeActiveFile(editor: vscode.TextEditor | undefined) {
         setTimeout(() => {
             if (!editor) {
-                return this.refresh()
+                this.activeFilePath = undefined
+                this.pendingRevealPath = undefined
+                this.pendingRevealDate = undefined
+                this.refresh()
+
+                return
             }
 
-            const filename = editor.document.uri
+            let filename = editor.document.uri
+            const diff = editor.diffInformation
+
+            if (diff?.length) {
+                filename = diff[0].original
+            }
+
             const settings = this.controller.getSettings(filename)
             const prop = this.controller.decodeFile(filename.fsPath, settings, false)
 
-            if (!prop || prop.file !== this.currentHistoryFile) {
+            const newActiveFile = (prop && prop.date) ? filename.fsPath : undefined
+            const baseFileChanged = !prop || prop.file !== this.currentHistoryFile
+            const activeFileChanged = this.activeFilePath !== newActiveFile
+
+            this.currentHistoryFile = prop ? prop.file : undefined
+            this.activeFilePath = newActiveFile
+
+            if (baseFileChanged || activeFileChanged) {
+                if (newActiveFile && prop) {
+                    this.pendingRevealPath = newActiveFile
+                    this.pendingRevealDate = prop.date
+                } else {
+                    this.pendingRevealPath = undefined
+                    this.pendingRevealDate = undefined
+                }
+
                 this.refresh()
             }
         }, 50)
@@ -323,26 +399,23 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
                 if (sel.title === 'Yes') {
                     switch (this.contentKind) {
                         case EHistoryTreeContentKind.All:
-                            // Delete all history
                             this.controller.deleteAll(this.currentHistoryPath)
                                 .then(() => this.refresh())
                                 .catch((err) => vscode.window.showErrorMessage(`Delete failed: ${err}`))
                             break
                         case EHistoryTreeContentKind.Current:
-                            // delete history for current file
                             this.controller.deleteHistory(this.currentHistoryFile)
                                 .then(() => this.refresh())
                                 .catch((err) => vscode.window.showErrorMessage(`Delete failed: ${err}`))
                             break
                         case EHistoryTreeContentKind.Search:
-                            // Delete visible history files
-                            const keys = Object.keys(this.historyFiles)
+                            const historyGroupNames = Object.keys(this.historyFiles)
 
-                            if (keys && keys.length) {
-                                const items: any = []
+                            if (historyGroupNames.length) {
+                                const filesToDelete = historyGroupNames.flatMap((groupName) =>
+                                    this.historyFiles[groupName].map((historyFile) => historyFile.file))
 
-                                keys.forEach((key) => items.push(...this.historyFiles[key].map((item) => item.file)))
-                                this.controller.deleteFiles(items)
+                                this.controller.deleteFiles(filesToDelete)
                                     .then(() => this.refresh())
                                     .catch((err) => vscode.window.showErrorMessage(`Delete failed: ${err}`))
                             }
@@ -477,7 +550,9 @@ class HistoryItem extends vscode.TreeItem {
                 this.tooltip = file.fsPath // TODO remove before .history
                 this.resourceUri = file
 
-                if (showIcon) {
+                if (provider.isCurrentFile(file)) {
+                    this.iconPath = new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'))
+                } else if (showIcon) {
                     this.iconPath = false
                 }
 

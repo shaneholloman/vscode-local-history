@@ -6,17 +6,52 @@ based on https://github.com/zabel-xyz/local-history which seems abandoned
 
 > ## Visual Timeline
 
-| Command             | Windows      | macOS       |
-| ------------------- | ------------ | ----------- |
-| Switch mode         | `Tab`        | `Tab`       |
-| Previous checkpoint | `←`          | `←`         |
-| Next checkpoint     | `→`          | `→`         |
-| Scroll              | `↑` / `↓`    | `↑` / `↓`   |
-| Close timeline      | `Esc`        | `Esc`       |
-| Zoom in             | `Ctrl` + `+` | `Cmd` + `+` |
-| Zoom out            | `Ctrl` + `-` | `Cmd` + `-` |
-| Reset zoom          | `Ctrl` + `0` | `Cmd` + `0` |
-| Undo                | `Ctrl` + `Z` | `Cmd` + `Z` |
+![demo](https://github.com/ctf0/local-history/releases/download/010/demo.png)
+
+A full-featured diff viewer for navigating file history with snapshot-to-current diffing.
+
+### Interactive Diff & Hunk Management
+
+- **Hunk-level apply/reject** — click any changed line block to apply snapshot changes to the current file, or reject current changes (restoring snapshot content).
+- **Partial (single-line) hunk actions** — `Cmd/Ctrl + Click` a single line within a hunk to apply or reject just that line, leaving the rest of the hunk unchanged.
+- **Undo stack** — every hunk/line action is backed by a file-based undo copy, so you can undo with `Cmd/Ctrl + Z`. Undo survives timeline navigation and panel close/reopen within the same session. Configurable with `localHistory.fileBackedUndo`.
+- **Context menu** — right-click any line/hunk to copy its content.
+
+### Visuals
+
+- **Side-by-side & Unified views** — toggle between side-by-side (default) and unified diff layout. The view automatically switches to unified when the editor is narrow, controlled by `diffEditor.renderSideBySideInlineBreakpoint`.
+- **Inline word-level diff** — changed lines show inline word highlighting (red/green spans within the line) for precise change visibility.
+- **Syntax highlighting** — full syntax highlighting on both the snapshot and current file sides via TextMate grammars.
+- **Themed** — uses active VS Code theme colors (editor, diff editor, title bar, button, scrollbar, etc.) and respects `editor.lineHeight`, `editor.fontFamily`, `editor.fontSize` settings.
+- **Collapsible unchanged regions** — respects `diffEditor.hideUnchangedRegions` settings; unchanged blocks can be collapsed/expanded with a click.
+
+### Snapshot Navigation
+
+- **Timeline strip** — a horizontal timeline bar at the top shows all snapshots as dots with dates. Click any dot to jump directly to that snapshot. Scroll horizontally with the mouse wheel.
+- **Arrow keys `←` / `→`** to step between snapshots (older/newer). Fast repeated presses are debounced for smooth rendering.
+- **Counter display** — shows current position (e.g. `3 / 15`) between the prev/next buttons.
+- **Direct snapshot actions** — open any snapshot in an editor ("Open in Editor" button) or restore it to the current file with a confirmation dialog (`Restore This Version` button).
+- **Cursor tracking** — when the timeline opens, the view scrolls to the current line under cursor in the editor (for quick view of the line history).
+- **Scroll Sync** between right/left views.
+
+### Default View
+
+- Configurable via `localHistory.defaultView` (`side-by-side` or `unified`).
+
+### Keyboard Shortcuts
+
+| Command                     | Windows            | macOS             |
+| --------------------------- | ------------------ | ----------------- |
+| Switch mode                 | `Tab`              | `Tab`             |
+| Previous checkpoint         | `←`                | `←`               |
+| Next checkpoint             | `→`                | `→`               |
+| Scroll up/down              | `↑` / `↓`          | `↑` / `↓`         |
+| Scroll to top/bottom        | `Ctrl` + `↑` / `↓` | `Cmd` + `↑` / `↓` |
+| Close timeline/context menu | `Esc`              | `Esc`             |
+| Zoom in                     | `Ctrl` + `+`       | `Cmd` + `+`       |
+| Zoom out                    | `Ctrl` + `-`       | `Cmd` + `-`       |
+| Reset zoom                  | `Ctrl` + `0`       | `Cmd` + `0`       |
+| Undo hunk action            | `Ctrl` + `Z`       | `Cmd` + `Z`       |
 
 <br>
 
@@ -56,7 +91,7 @@ based on https://github.com/zabel-xyz/local-history which seems abandoned
 > "localHistory.maxDisplay": 10  // A max files to display with local history commands
 > "localHistory.saveDelay":   0  // A delay in seconds to save file in local history. {0: no delay}
 > "localHistory.dateLocale":     // The locale to use when displaying date (e.g.: "fr-CH" or "en-GB" or ...)
-> "localHistory.dateFormat":     // Date format: "tree" (28/05/2026, 20:07:00) or "timeline" (Thu, May 28, 2026, 08:07 PM)
+> "localHistory.dateFormat":     // Date format: "timestamp" (28/05/2026, 20:07:00) or "human" (Thu, May 28, 2026, 08:07 PM)
 >
 > "localHistory.path":     // Specify another location for .history folder (null: use workspaceFolder)
 > This settings must be an absolute path.

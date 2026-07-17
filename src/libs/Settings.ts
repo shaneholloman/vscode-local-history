@@ -45,23 +45,14 @@ export class HistorySettings {
 
     public get(file: vscode.Uri): IHistorySettings {
         // Find workspaceFolder corresponding to file
-        let folder
-        const wsFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file.fsPath))
+        const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file.fsPath))?.uri
 
-        if (wsFolder) {
-            folder = wsFolder.uri
-        }
-
-        let settings = this.settings.find((value, index, obj) => {
-            if (folder && value.folder) {
-                return (value.folder.fsPath === folder.fsPath)
-            } else {
-                return (folder === value.folder)
-            }
+        let settings = this.settings.find((value) => {
+            return folder?.fsPath === value.folder?.fsPath
         })
 
         if (!settings) {
-            settings = this.read(folder, file, wsFolder)
+            settings = this.read(folder)
             this.settings.push(settings)
         }
 
@@ -83,8 +74,8 @@ export class HistorySettings {
        saved in vscode.getworkspacefolder\.history\<relative>
        (no workspacefolder => not saved)
     */
-    private read(workspacefolder: vscode.Uri, file: vscode.Uri, ws: vscode.WorkspaceFolder): IHistorySettings {
-        const config = utils.readConfig()
+    private read(workspacefolder: vscode.Uri): IHistorySettings {
+        utils.readConfig()
         const enabled = <EHistoryEnabled>utils.config.enabled
         let historyPath
         let absolute
@@ -149,7 +140,7 @@ export class HistorySettings {
                         historyPath = path.join(
                             historyPath,
                             '.history',
-                            (historyWS && this.pathIsInside(workspacefolder.fsPath, historyWS.fsPath) ? '' : path.basename(workspacefolder.fsPath)),
+                            (historyWS && isPathInside(workspacefolder.fsPath, historyWS.fsPath) ? '' : path.basename(workspacefolder.fsPath)),
                         )
                     }
                 }
@@ -175,9 +166,5 @@ export class HistorySettings {
             historyPath : historyPath,
             absolute    : absolute,
         }
-    }
-
-    private pathIsInside(test, parent) {
-        return isPathInside(test, parent)
     }
 }

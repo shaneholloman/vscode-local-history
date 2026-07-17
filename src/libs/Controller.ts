@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {rimraf} from 'rimraf'
 import * as vscode from 'vscode'
-import Timeout from '../Timeout'
+import Timeout from './Timeout'
 import * as utils from '../utils'
 import {HistorySettings, IHistorySettings} from './Settings'
 
@@ -80,20 +80,15 @@ export class HistoryController {
         return this.internalCompare(file1, file2, column, range)
     }
 
-    public findAllHistory(fileName: string, settings: IHistorySettings, noLimit?: boolean): Promise<IHistoryFileProperties> {
-        return new Promise((resolve, reject) => {
-            if (!settings.enabled) {
-                return resolve({history: []} as IHistoryFileProperties)
-            }
+    public async findAllHistory(fileName: string, settings: IHistorySettings, noLimit?: boolean): Promise<IHistoryFileProperties> {
+        if (!settings.enabled) {
+            return {history: []} as IHistoryFileProperties
+        }
 
-            const fileProperties = this.decodeFile(fileName, settings, true)
-            this.getHistoryFiles(fileProperties && fileProperties.file, settings, noLimit)
-                .then((files) => {
-                    fileProperties.history = files
-                    resolve(fileProperties)
-                })
-                .catch((err) => reject(err))
-        })
+        const fileProperties = this.decodeFile(fileName, settings, true)
+        fileProperties.history = await this.getHistoryFiles(fileProperties && fileProperties.file, settings, noLimit)
+
+        return fileProperties
     }
 
     public findGlobalHistory(find: string, findFile: boolean, settings: IHistorySettings, noLimit?: boolean): Promise<string[]> {
@@ -221,7 +216,7 @@ export class HistoryController {
                 // (Often the case...)
                 const files = glob.sync(revisionPattern, {cwd: settings.historyPath.replace(/\\/g, '/')})
 
-                if (files && files.length > 0) {
+                if (files.length > 0) {
                     return resolve()
                 }
 
@@ -235,7 +230,6 @@ export class HistoryController {
             }
 
             let now = new Date()
-            let nowInfo
 
             if (isOriginal) {
                 // find original date (if any)
@@ -248,7 +242,7 @@ export class HistoryController {
 
             // remove 1 sec to original version, to avoid same name as currently version
             now = new Date(now.getTime() - (now.getTimezoneOffset() * 60000) - (isOriginal ? 1000 : 0))
-            nowInfo = now.toISOString().substring(0, 19).replace(/[-:T]/g, '')
+            const nowInfo = now.toISOString().substring(0, 19).replace(/[-:T]/g, '')
 
             const revisionFile = this.joinPath(settings.historyPath, revisionDir, p.name, p.ext, `_${nowInfo}`) // toto_20151213215326.js
 
@@ -305,7 +299,7 @@ export class HistoryController {
         const historyPath = settings.historyPath.replace(/\\/g, '/')
         let files = await glob(escapedPatternFilePath, {cwd: historyPath, absolute: true})
 
-        if (files && files.length) {
+        if (files.length) {
             // files are sorted in ascending order
             files.sort()
 
@@ -324,14 +318,13 @@ export class HistoryController {
             return
         }
 
-        const me = this
         const document = (editor && editor.document)
 
         if (!document) {
             return
         }
 
-        me.findAllHistory(document.fileName, settings)
+        this.findAllHistory(document.fileName, settings)
             .then((fileProperties) => {
                 const files = fileProperties.history
 
@@ -340,15 +333,12 @@ export class HistoryController {
                 }
 
                 const displayFiles: any = []
-                let file
-                let relative
-                let properties
 
                 // desc order history
                 for (let index = files.length - 1; index >= 0; index--) {
-                    file = files[index]
-                    relative = path.relative(settings.historyPath, file)
-                    properties = me.decodeFile(file, settings)
+                    const file = files[index]
+                    const relative = path.relative(settings.historyPath, file)
+                    const properties = this.decodeFile(file, settings)
                     displayFiles.push({
                         description : relative,
                         label       : utils.formatDate(properties.date, settings.dateLocale),
@@ -365,7 +355,7 @@ export class HistoryController {
                                 selected : val.filePath,
                                 previous : val.previous,
                             }
-                            action.apply(me, [actionValues, editor])
+                            action.apply(this, [actionValues, editor])
                         }
                     })
             })
@@ -391,13 +381,9 @@ export class HistoryController {
 
     private internalOpen(filePath: vscode.Uri, column: number) {
         if (filePath) {
-            return new Promise((resolve, reject) => {
-                vscode.workspace.openTextDocument(filePath)
-                    .then((d) => {
-                        vscode.window.showTextDocument(d, column)
-                            .then(() => resolve(), (err) => reject(err))
-                    }, (err) => reject(err))
-            })
+            return vscode.workspace.openTextDocument(filePath)
+                .then((document) => vscode.window.showTextDocument(document, column))
+                .then(() => undefined)
         }
     }
 
@@ -417,17 +403,14 @@ export class HistoryController {
     }
 
     private internalDecodeFile(filePath: string, settings: IHistorySettings, history?: boolean): IHistoryFileProperties {
-        const me = this
         let file
-        let p
+        const p = path.parse(filePath)
         let date
         let isHistory = false
 
-        p = path.parse(filePath)
-
         if (filePath.includes('/.history/') || filePath.includes('\\.history\\')) { // startsWith(this.settings.historyPath))
             isHistory = true
-            const index = p.name.match(me.regExp)
+            const index = p.name.match(this.regExp)
 
             if (index) {
                 date = new Date(index[1], index[2] - 1, index[3], index[4], index[5], index[6])
@@ -461,7 +444,7 @@ export class HistoryController {
                 }
             }
 
-            file = me.joinPath(root, p.dir, p.name, p.ext, history ? undefined : '')
+            file = this.joinPath(root, p.dir, p.name, p.ext, history ? undefined : '')
         } else {
             file = filePath
         }
@@ -526,9 +509,7 @@ export class HistoryController {
     }
 
     private purge(document: vscode.TextDocument, settings: IHistorySettings, pattern: string) {
-        const me = this
-
-        me.getHistoryFiles(pattern, settings, true)
+        this.getHistoryFiles(pattern, settings, true)
             .then((files) => {
                 if (!files || !files.length) {
                     return

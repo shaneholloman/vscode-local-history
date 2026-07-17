@@ -1,11 +1,7 @@
 export default class Timeout {
-    private startTime
-    private duration = 0
+    private readonly startTime = Date.now()
 
-    constructor(duration: number) {
-        this.duration = duration
-        this.startTime = new Date()
-    }
+    constructor(private readonly duration: number) {}
 
     public isTimedOut() {
         return this.getDuration() > this.duration
@@ -16,6 +12,6 @@ export default class Timeout {
     }
 
     private getDuration(): number {
-        return (new Date()).getTime() - this.startTime.getTime()
+        return Date.now() - this.startTime
     }
 }

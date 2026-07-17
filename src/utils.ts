@@ -10,7 +10,7 @@ export function readConfig() {
 }
 
 export function formatDate(date: Date, locale = config.dateLocale): string {
-    if (config.get<string>('dateFormat', 'tree') === 'timeline') {
+    if (config.get<string>('dateFormat', 'timestamp') === 'human') {
         return date.toLocaleString(undefined, {
             weekday : 'short',
             year    : 'numeric',
@@ -27,4 +27,12 @@ export function formatDate(date: Date, locale = config.dateLocale): string {
 
 export function getIconPath(webview: vscode.Webview, extensionUri: vscode.Uri, iconName: string): string {
     return webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'images', 'icons', iconName)).toString()
+}
+
+export function escapeHtml(s: string): string {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
 }

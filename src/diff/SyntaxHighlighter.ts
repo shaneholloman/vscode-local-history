@@ -1,8 +1,9 @@
 import * as vscode from 'vscode'
 import * as path from 'path'
 import * as fs from 'fs'
-import {Registry, INITIAL} from 'vscode-textmate'
+import {Registry} from 'vscode-textmate'
 import {loadWASM, createOnigScanner, createOnigString} from 'vscode-oniguruma'
+import {escapeHtml} from '../utils'
 
 // ---------------------------------------------------------------------------
 // Shorthand → scope mapping for editor.tokenColorCustomizations
@@ -58,9 +59,6 @@ const LIGHT_COLORS: [string, string][] = [
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function escapeHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
 
 interface GrammarDefinition {
     language      : string | undefined
@@ -133,18 +131,15 @@ function matchRules(rules: ThemeRule[] | undefined, scopes: string[]): string | 
         return null
     }
 
+    const tokenScopes = scopes.map((scope) => scope.toLowerCase())
     let best: {color: string, len: number} | null = null
 
     for (const rule of rules) {
         for (const ruleScope of rule.scopes) {
             const rs = ruleScope.toLowerCase()
 
-            for (const tokenScope of scopes) {
-                if (tokenScope.toLowerCase().includes(rs)) {
-                    if (!best || rs.length > best.len) {
-                        best = {color: rule.foreground, len: rs.length}
-                    }
-                }
+            if (tokenScopes.some((tokenScope) => tokenScope.includes(rs)) && (!best || rs.length > best.len)) {
+                best = {color: rule.foreground, len: rs.length}
             }
         }
     }
@@ -316,6 +311,8 @@ function loadActiveTheme(): ThemeRule[] | null {
 }
 
 function findAndParseTheme(themeId: string): ThemeRule[] | null {
+    const normalizedThemeId = themeId.toLowerCase()
+
     for (const ext of vscode.extensions.all) {
         const themes: any[] = ext.packageJSON?.contributes?.themes
 
@@ -327,11 +324,7 @@ function findAndParseTheme(themeId: string): ThemeRule[] | null {
             const label = t.label ?? ''
             const id = t.id ?? ''
 
-            if (
-                label === themeId || id === themeId
-                || label.toLowerCase() === themeId.toLowerCase()
-                || id.toLowerCase() === themeId.toLowerCase()
-            ) {
+            if ([label, id].some((value) => value === themeId || value.toLowerCase() === normalizedThemeId)) {
                 if (!t.path) {
                     continue
                 }

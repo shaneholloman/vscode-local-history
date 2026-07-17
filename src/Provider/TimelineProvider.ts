@@ -2,525 +2,31 @@ import * as vscode from 'vscode'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
-import {HistoryController} from './Controller'
-import {getHighlighter, onDidChangeTheme} from './SyntaxHighlighter'
-import {formatDate, PKG_CONFIG} from '../utils'
-
-// ---------------------------------------------------------------------------
-// LCS-based line diff
-// ---------------------------------------------------------------------------
-interface DiffLine {
-    kind    : 'added' | 'removed' | 'unchanged'
-    content : string
-    inline? : InlineDiffPart[]
-}
-
-interface InlineDiffPart {
-    kind    : 'added' | 'removed' | 'unchanged'
-    content : string
-}
-
-type InlineDiff = [InlineDiffPart[], InlineDiffPart[]]
-
-function lcsBacktrack(
-    table: number[][],
-    oldLines: string[],
-    newLines: string[],
-    i: number,
-    j: number,
-    result: DiffLine[][],
-): void {
-    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-        lcsBacktrack(table, oldLines, newLines, i - 1, j - 1, result)
-        result[0].push({kind: 'unchanged', content: oldLines[i - 1]})
-        result[1].push({kind: 'unchanged', content: newLines[j - 1]})
-    } else if (j > 0 && (i === 0 || table[i][j - 1] >= table[i - 1][j])) {
-        lcsBacktrack(table, oldLines, newLines, i, j - 1, result)
-        result[0].push({kind: 'added', content: ''})
-        result[1].push({kind: 'added', content: newLines[j - 1]})
-    } else if (i > 0 && (j === 0 || table[i][j - 1] < table[i - 1][j])) {
-        lcsBacktrack(table, oldLines, newLines, i - 1, j, result)
-        result[0].push({kind: 'removed', content: oldLines[i - 1]})
-        result[1].push({kind: 'removed', content: ''})
-    }
-}
-
-function computeLineDiff(leftText: string, rightText: string): DiffLine[][] {
-    const leftLines = leftText.split('\n')
-    const rightLines = rightText.split('\n')
-
-    if (leftText === rightText) {
-        return [
-            leftLines.map((content) => ({kind: 'unchanged', content})),
-            rightLines.map((content) => ({kind: 'unchanged', content})),
-        ]
-    }
-
-    let prefixLength = 0
-
-    while (
-        prefixLength < leftLines.length
-        && prefixLength < rightLines.length
-        && leftLines[prefixLength] === rightLines[prefixLength]
-    ) {
-        prefixLength++
-    }
-
-    let suffixLength = 0
-
-    while (
-        suffixLength < leftLines.length - prefixLength
-        && suffixLength < rightLines.length - prefixLength
-        && leftLines[leftLines.length - suffixLength - 1] === rightLines[rightLines.length - suffixLength - 1]
-    ) {
-        suffixLength++
-    }
-
-    const middleLeftLines = leftLines.slice(prefixLength, leftLines.length - suffixLength)
-    const middleRightLines = rightLines.slice(prefixLength, rightLines.length - suffixLength)
-    const n = middleLeftLines.length
-    const m = middleRightLines.length
-
-    // Build LCS table
-    const table: number[][] = Array.from({length: n + 1}, () => new Array(m + 1).fill(0))
-
-    for (let i = 1; i <= n; i++) {
-        for (let j = 1; j <= m; j++) {
-            table[i][j] = middleLeftLines[i - 1] === middleRightLines[j - 1]
-                ? table[i - 1][j - 1] + 1
-                : Math.max(table[i - 1][j], table[i][j - 1])
-        }
-    }
-
-    const result: DiffLine[][] = [[], []]
-    lcsBacktrack(table, middleLeftLines, middleRightLines, n, m, result)
-
-    const aligned: DiffLine[][] = [[], []]
-
-    for (let i = 0; i < result[0].length;) {
-        if (result[0][i].kind === 'unchanged') {
-            aligned[0].push(result[0][i])
-            aligned[1].push(result[1][i])
-            i++
-            continue
-        }
-
-        const removed: string[] = []
-        const added: string[] = []
-
-        while (i < result[0].length && result[0][i].kind !== 'unchanged') {
-            if (result[0][i].kind === 'removed') {
-                removed.push(result[0][i].content)
-            }
-
-            if (result[1][i].kind === 'added') {
-                added.push(result[1][i].content)
-            }
-
-            i++
-        }
-
-        for (let j = 0; j < Math.max(removed.length, added.length); j++) {
-            aligned[0].push(j < removed.length
-                ? {kind: 'removed', content: removed[j]}
-                : {kind: 'added', content: ''})
-            aligned[1].push(j < added.length
-                ? {kind: 'added', content: added[j]}
-                : {kind: 'removed', content: ''})
-        }
-    }
-
-    const prefix = leftLines.slice(0, prefixLength)
-    const suffixStartLeft = leftLines.length - suffixLength
-    const suffixStartRight = rightLines.length - suffixLength
-
-    return [
-        prefix.map((content) => ({kind: 'unchanged', content}))
-            .concat(aligned[0])
-            .concat(leftLines.slice(suffixStartLeft).map((content) => ({kind: 'unchanged', content}))),
-        rightLines.slice(0, prefixLength).map((content) => ({kind: 'unchanged', content}))
-            .concat(aligned[1])
-            .concat(rightLines.slice(suffixStartRight).map((content) => ({kind: 'unchanged', content}))),
-    ]
-}
-
-function appendInlinePart(parts: InlineDiffPart[], kind: InlineDiffPart['kind'], content: string): void {
-    if (!content) {
-        return
-    }
-
-    const previous = parts[parts.length - 1]
-
-    if (previous?.kind === kind) {
-        previous.content += content
-    } else {
-        parts.push({kind, content})
-    }
-}
-
-function tokenizeInlineText(text: string): string[] {
-    return text.match(/[\p{L}\p{N}_]+|\s+|[^\p{L}\p{N}_\s]/gu) ?? []
-}
-
-function findInlineBounds(left: string[], right: string[]): [number, number] {
-    let prefixLength = 0
-
-    while (prefixLength < left.length && prefixLength < right.length && left[prefixLength] === right[prefixLength]) {
-        prefixLength++
-    }
-
-    let suffixLength = 0
-
-    while (
-        suffixLength < left.length - prefixLength
-        && suffixLength < right.length - prefixLength
-        && left[left.length - suffixLength - 1] === right[right.length - suffixLength - 1]
-    ) {
-        suffixLength++
-    }
-
-    return [prefixLength, suffixLength]
-}
-
-function buildInlineDiffTable(left: string[], right: string[]): number[][] {
-    // ponytail: word LCS is O(n*m); use a bounded diff algorithm if long lines become slow.
-    const table: number[][] = Array.from({length: left.length + 1}, () => new Array(right.length + 1).fill(0))
-
-    for (let i = 1; i <= left.length; i++) {
-        for (let j = 1; j <= right.length; j++) {
-            table[i][j] = left[i - 1] === right[j - 1]
-                ? table[i - 1][j - 1] + 1
-                : Math.max(table[i - 1][j], table[i][j - 1])
-        }
-    }
-
-    return table
-}
-
-function appendInlineOperations(result: InlineDiff, operations: DiffLine[][]): void {
-    for (let i = 0; i < operations[0].length; i++) {
-        const leftPart = operations[0][i]
-        const rightPart = operations[1][i]
-
-        if (leftPart.kind === 'unchanged') {
-            appendInlinePart(result[0], 'unchanged', leftPart.content)
-            appendInlinePart(result[1], 'unchanged', rightPart.content)
-        } else if (leftPart.kind === 'removed') {
-            appendInlinePart(result[0], 'removed', leftPart.content)
-        } else {
-            appendInlinePart(result[1], 'added', rightPart.content)
-        }
-    }
-}
-
-function computeInlineDiff(leftText: string, rightText: string): InlineDiff {
-    const left = tokenizeInlineText(leftText)
-    const right = tokenizeInlineText(rightText)
-    const [prefixLength, suffixLength] = findInlineBounds(left, right)
-    const leftMiddle = left.slice(prefixLength, left.length - suffixLength)
-    const rightMiddle = right.slice(prefixLength, right.length - suffixLength)
-    const table = buildInlineDiffTable(leftMiddle, rightMiddle)
-    const operations: DiffLine[][] = [[], []]
-    lcsBacktrack(table, leftMiddle, rightMiddle, leftMiddle.length, rightMiddle.length, operations)
-
-    const result: InlineDiff = [[], []]
-    appendInlinePart(result[0], 'unchanged', left.slice(0, prefixLength).join(''))
-    appendInlinePart(result[1], 'unchanged', right.slice(0, prefixLength).join(''))
-    appendInlineOperations(result, operations)
-
-    const suffix = left.slice(left.length - suffixLength).join('')
-    appendInlinePart(result[0], 'unchanged', suffix)
-    appendInlinePart(result[1], 'unchanged', suffix)
-
-    return result
-}
-
-interface HiddenRegion {
-    start : number
-    count : number
-}
-
-interface HiddenRegions {
-    starts      : Map<number, HiddenRegion>
-    lineRegions : Map<number, HiddenRegion>
-}
-
-const ADD_HUNK_TITLE    = 'Add this change'
-const REMOVE_HUNK_TITLE = 'Remove this change'
-const KEYBOARD_NAVIGATION_DEBOUNCE_MS = 300
-
-function computeHiddenRegions(lines: DiffLine[], enabled: boolean, minimumLineCount: number, contextLineCount: number): HiddenRegions {
-    const starts = new Map<number, HiddenRegion>()
-    const lineRegions = new Map<number, HiddenRegion>()
-
-    if (!enabled) {
-        return {starts, lineRegions}
-    }
-
-    let runStart = 0
-
-    while (runStart < lines.length) {
-        if (lines[runStart].kind !== 'unchanged') {
-            runStart++
-            continue
-        }
-
-        let runEnd = runStart
-
-        while (runEnd < lines.length && lines[runEnd].kind === 'unchanged') {
-            runEnd++
-        }
-
-        const runLength = runEnd - runStart
-        const atStart = runStart === 0
-        const atEnd = runEnd === lines.length
-
-        if (atStart && atEnd) {
-            if (runLength >= minimumLineCount) {
-                const region = {start: runStart, count: runLength}
-                starts.set(runStart, region)
-
-                for (let i = runStart; i < runEnd; i++) {
-                    lineRegions.set(i, region)
-                }
-            }
-
-            runStart = runEnd
-            continue
-        }
-
-        const hiddenLength = atStart || atEnd
-            ? runLength - contextLineCount
-            : runLength - contextLineCount * 2
-
-        if (hiddenLength >= minimumLineCount) {
-            const start = atStart ? runStart : runStart + contextLineCount
-            const count = hiddenLength
-            const region = {start, count}
-
-            starts.set(start, region)
-
-            for (let i = start; i < start + count; i++) {
-                lineRegions.set(i, region)
-            }
-        }
-
-        runStart = runEnd
-    }
-
-    return {starts, lineRegions}
-}
-
-// ---------------------------------------------------------------------------
-// Hunk computation for apply-changes
-// ---------------------------------------------------------------------------
-interface Hunk {
-    snapshotContent : string
-    snapshotStart   : number
-    snapshotEnd     : number
-    currentContent  : string
-    currentStart    : number
-    currentEnd      : number
-    alignedStart    : number
-}
-
-function computeHunks(leftLines: DiffLine[], rightLines: DiffLine[]): Hunk[] {
-    const hunks: Hunk[] = []
-    let snapLine = 0
-    let currLine = 0
-    let i = 0
-
-    while (i < leftLines.length) {
-        if (leftLines[i].kind === 'unchanged') {
-            snapLine++
-            currLine++
-            i++
-            continue
-        }
-
-        const alignedStart = i
-        const hunkSnapStart = snapLine
-        const hunkCurrStart = currLine
-        const snapLines: string[] = []
-        const currLines: string[] = []
-
-        while (i < leftLines.length && leftLines[i].kind !== 'unchanged') {
-            if (leftLines[i].kind === 'removed') {
-                snapLines.push(leftLines[i].content)
-                snapLine++
-            }
-
-            if (rightLines[i].kind === 'added') {
-                currLines.push(rightLines[i].content)
-                currLine++
-            }
-
-            i++
-        }
-
-        if (snapLines.length > 0 || currLines.length > 0) {
-            hunks.push({
-                snapshotContent : snapLines.join('\n'),
-                snapshotStart   : hunkSnapStart,
-                snapshotEnd     : hunkSnapStart + snapLines.length,
-                currentContent  : currLines.join('\n'),
-                currentStart    : hunkCurrStart,
-                currentEnd      : hunkCurrStart + currLines.length,
-                alignedStart,
-            })
-        }
-    }
-
-    return hunks
-}
-
-function escapeHtml(s: string): string {
-    return s
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-}
-
-function renderHiddenRegion(region: HiddenRegion): string {
-    const title = `Show ${region.count} unchanged lines`
-
-    return `<div class="line unchanged-region clickable-region" data-region="${region.start}" data-count="${region.count}" data-tooltip="${title}" aria-label="${title}" role="button" tabindex="0"><span class="hidden-label" data-region-label="${region.start}">${title}</span></div>`
-}
-
-function renderHiddenLine(dl: DiffLine, lineNumber: number, region: HiddenRegion, highlight: (s: string) => string): string {
-    return `<div class="line unchanged-hidden" data-region="${region.start}"><span class="ln-num">${lineNumber}</span><span class="ln">${highlight(dl.content)}</span></div>`
-}
-
-function renderInlineDiff(content: string, parts: InlineDiffPart[] | undefined, highlight: (s: string) => string): string {
-    if (!parts) {
-        return highlight(content)
-    }
-
-    return parts.map((part) => part.kind === 'unchanged' || /^\s+$/u.test(part.content)
-        ? highlight(part.content)
-        : `<span class="inline-diff-${part.kind}">${highlight(part.content)}</span>`).join('')
-}
-
-function buildSideHtml(
-    lines: DiffLine[],
-    hiddenRegions: HiddenRegions,
-    hunkMap: Map<number, number>,
-    highlight: (s: string) => string,
-    changedKind: 'added' | 'removed',
-    emptyKind: 'added' | 'removed',
-    changedClass: string,
-    action: 'add' | 'remove',
-    title: string,
-): string[] {
-    return lines.flatMap((dl, i) => {
-        const hiddenRegion = hiddenRegions.starts.get(i)
-        const hiddenRegionAtLine = hiddenRegions.lineRegions.get(i)
-        const out: string[] = hiddenRegion ? [renderHiddenRegion(hiddenRegion)] : []
-
-        if (hiddenRegionAtLine) {
-            out.push(renderHiddenLine(dl, i + 1, hiddenRegionAtLine, highlight))
-
-            return out
-        }
-
-        const cls = dl.kind === changedKind ? ` ${changedClass}` : dl.kind === emptyKind ? ' diff-empty' : ''
-        const hunkIdx = hunkMap.get(i)
-        const hunkTitle = hunkIdx === undefined ? '' : title
-        const attrs = hunkIdx === undefined
-            ? ''
-            : ` data-hunk="${hunkIdx}" data-action="${action}" data-tooltip="${hunkTitle}" aria-label="${hunkTitle}" role="button" tabindex="0"`
-
-        out.push(`<div class="line${cls}${hunkIdx === undefined ? '' : ' clickable-hunk'}"${attrs}><span class="ln-num">${i + 1}</span><span class="ln">${renderInlineDiff(dl.content, dl.inline, highlight)}</span></div>`)
-
-        return out
-    })
-}
-
-function buildUnifiedHtml(leftLines: DiffLine[], rightLines: DiffLine[], highlight: (s: string) => string = escapeHtml, hunkMap?: Map<number, number>, hiddenRegions?: HiddenRegions): string {
-    const out: string[] = []
-
-    // Walk through the pair arrays interleaved
-    // When left is removed and right empty → `-` line
-    // When left empty and right is added → `+` line
-    // When both unchanged → normal line with a space prefix
-    for (let i = 0; i < Math.max(leftLines.length, rightLines.length); i++) {
-        const l = leftLines[i]
-        const r = rightLines[i]
-        const leftContent  = l ? renderInlineDiff(l.content, l.inline, highlight) : ''
-        const rightContent = r ? renderInlineDiff(r.content, r.inline, highlight) : ''
-        const lineNum = i + 1
-        const rightLineNumber = l?.kind === 'removed' && r?.kind === 'added'
-            ? '<span class="ln-num" aria-hidden="true"></span>'
-            : `<span class="ln-num">${lineNum}</span>`
-        const hiddenRegion = hiddenRegions?.starts.get(i)
-
-        if (hiddenRegion) {
-            out.push(renderHiddenRegion(hiddenRegion))
-        }
-
-        const hiddenRegionAtLine = hiddenRegions?.lineRegions.get(i)
-
-        if (hiddenRegionAtLine) {
-            if (l) {
-                out.push(renderHiddenLine(l, lineNum, hiddenRegionAtLine, highlight))
-            }
-
-            continue
-        }
-
-        if (l && l.kind === 'removed') {
-            const hunkIdx = hunkMap?.get(i)
-            const title = hunkIdx === undefined ? '' : ADD_HUNK_TITLE
-            const attrs = hunkIdx === undefined
-                ? ''
-                : ` data-hunk="${hunkIdx}" data-action="add" data-tooltip="${title}" aria-label="${title}" role="button" tabindex="0"`
-            out.push(`<div class="line diff-removed${hunkIdx === undefined ? '' : ' clickable-hunk'}"${attrs}><span class="ln-num">${lineNum}</span><span class="ln">${leftContent}</span></div>`)
-        }
-
-        if (r && r.kind === 'added') {
-            const hunkIdx = hunkMap?.get(i)
-            const title = hunkIdx === undefined ? '' : REMOVE_HUNK_TITLE
-            const attrs = hunkIdx === undefined
-                ? ''
-                : ` data-hunk="${hunkIdx}" data-action="remove" data-tooltip="${title}" aria-label="${title}" role="button" tabindex="0"`
-            out.push(`<div class="line diff-added${hunkIdx === undefined ? '' : ' clickable-hunk'}"${attrs}>${rightLineNumber}<span class="ln">${rightContent}</span></div>`)
-        }
-
-        if (l && l.kind === 'unchanged') {
-            out.push(`<div class="line"><span class="ln-num">${lineNum}</span><span class="ln">${leftContent}</span></div>`)
-        }
-    }
-
-    return out.join('')
-}
-
-// ---------------------------------------------------------------------------
-// Snapshot metadata helpers
-// ---------------------------------------------------------------------------
-const snapshotRegExp = /_(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/
-
-function parseSnapshotDate(filePath: string): Date | null {
-    const {name} = path.parse(filePath)
-    const match = name.match(snapshotRegExp)
-
-    if (!match) {
-        return null
-    }
-
-    return new Date(
-        parseInt(match[1], 10),
-        parseInt(match[2], 10) - 1,
-        parseInt(match[3], 10),
-        parseInt(match[4], 10),
-        parseInt(match[5], 10),
-        parseInt(match[6], 10),
-    )
-}
+import {HistoryController} from '../libs/Controller'
+import {getHighlighter, onDidChangeTheme} from '../diff/SyntaxHighlighter'
+import {formatDate, PKG_CONFIG, getIconPath, escapeHtml} from '../utils'
+import {
+    computeLineDiff,
+    computeInlineDiff,
+    computeHiddenRegions,
+    computeHunks,
+    parseSnapshotDate,
+    yieldToEventLoop,
+    DiffLine,
+} from '../diff/DiffEngine'
+import {
+    buildSideHtml,
+    buildUnifiedHtml,
+    ADD_HUNK_TITLE,
+    REMOVE_HUNK_TITLE,
+} from '../diff/DiffRenderer'
 
 // ---------------------------------------------------------------------------
 // TimelineProvider
 // ---------------------------------------------------------------------------
+
+const KEYBOARD_NAVIGATION_DEBOUNCE_MS = 300
+
 export class TimelineProvider {
     private static active : TimelineProvider | undefined
     private panel         : vscode.WebviewPanel | undefined
@@ -534,11 +40,14 @@ export class TimelineProvider {
     private currentFileUri          : vscode.Uri | undefined
     private currentFileContent      : string = ''
     private currentLanguageId       : string = 'plaintext'
+    private renderMode              : 'side-by-side' | 'unified' = 'side-by-side'
     private _undoStacks             : Map<string, string[]> = new Map()
     private themeChangeSubscription : vscode.Disposable | undefined
     private lineHeightSubscription  : vscode.Disposable | undefined
     private navigationRenderTimer   : ReturnType<typeof setTimeout> | undefined
     private renderGeneration        : number = 0
+    private treeProvider?           : HistoryTreeProvider
+    private initialCursorLine       : number | undefined
 
     constructor(controller: HistoryController, extensionUri: vscode.Uri) {
         this.controller = controller
@@ -546,13 +55,25 @@ export class TimelineProvider {
         TimelineProvider.active = this
     }
 
+    public setTreeProvider(provider: HistoryTreeProvider) {
+        this.treeProvider = provider
+    }
+
     public static zoomIn = () => TimelineProvider.active?.sendZoom('in')
     public static zoomOut = () => TimelineProvider.active?.sendZoom('out')
     public static resetZoom = () => TimelineProvider.active?.sendZoom('reset')
-    public static undo = () => TimelineProvider.active?.undoLastAction()
+    public static undo = () => TimelineProvider.active?.requestUndo()
 
     private sendZoom(action: 'in' | 'out' | 'reset') {
         this.panel?.webview.postMessage({type: 'zoom', action})
+    }
+
+    private requestUndo() {
+        if (this.panel) {
+            this.panel.webview.postMessage({type: 'undo-command'})
+        } else {
+            void this.undoLastAction()
+        }
     }
 
     private setActiveContext(active: boolean) {
@@ -560,52 +81,61 @@ export class TimelineProvider {
     }
 
     /** Open timeline for the active editor or a specific file */
-    async open(uri?: vscode.Uri) {
-        let doc: vscode.TextDocument | undefined
+    async open() {
+        const editor = vscode.window.activeTextEditor
 
-        if (uri) {
-            try {
-                doc = await vscode.workspace.openTextDocument(uri)
-            } catch {
-                // fall through
-            }
+        if (!editor) {
+            vscode.window.showErrorMessage('No active editor to show timeline for.')
+
+            return
         }
 
-        if (!doc) {
-            const editor = vscode.window.activeTextEditor
-
-            if (!editor) {
-                vscode.window.showErrorMessage('No active editor to show timeline for.')
-
-                return
-            }
-
-            doc = editor.document
-        }
-
+        const doc = editor.document
         const fileName = doc.fileName
         const settings = this.controller.getSettings(doc.uri)
         const fileProps = await this.controller.findAllHistory(fileName, settings, true)
 
         if (!fileProps.history || fileProps.history.length === 0) {
-            vscode.window.showInformationMessage(`${PKG_CONFIG}: No history snapshots found for this file.`)
+            vscode.window.showInformationMessage(`No history snapshots found for this file.`)
 
             return
         }
 
         // Reverse to newest-first (original is oldest-first)
-        this.snapshots = [...fileProps.history].reverse()
+        const allSnapshots = [...fileProps.history].reverse()
         this.snapshotIndex = 0
         this.currentFileUri = doc.uri
         this.currentFileContent = doc.getText()
         this.currentLanguageId = doc.languageId
 
-        this.showPanel()
+        // Drop snapshots identical to current file content (right === left)
+        this.snapshots = allSnapshots.filter((snapPath) => {
+            try {
+                return fs.readFileSync(snapPath, 'utf-8') !== this.currentFileContent
+            } catch {
+                return true
+            }
+        })
+
+        if (this.snapshots.length === 0) {
+            vscode.window.showInformationMessage(`No history snapshots with changes for this file.`)
+
+            return
+        }
+
+        this.initialCursorLine = editor.selection.active.line + 1
+        this.showPanel(doc.fileName)
         await this.renderSnapshot()
     }
 
-    private showPanel() {
+    private showPanel(fileName: string) {
+        fileName = path.basename(fileName)
+        const title = `Local History Timeline : ${fileName}`
+
+        TimelineProvider.active = this
+
         if (this.panel) {
+            this.panel.title = title
             this.panel.reveal(vscode.ViewColumn.Active)
             this.setActiveContext(true)
             // Refresh content in case current file changed
@@ -616,7 +146,7 @@ export class TimelineProvider {
 
         this.panel = vscode.window.createWebviewPanel(
             'localHistoryTimeline',
-            'Local History Timeline',
+            title,
             vscode.ViewColumn.Active,
             {
                 enableScripts           : true,
@@ -630,17 +160,19 @@ export class TimelineProvider {
 
         this.panel.webview.html = this.getBaseHtml()
         this.setActiveContext(true)
+
         this.panel.onDidChangeViewState((event) => {
-            this.setActiveContext(event.webviewPanel.active)
-            event.webviewPanel.webview.postMessage({type: 'viewState', active: event.webviewPanel.active})
+            const panel = event.webviewPanel
+            this.setActiveContext(panel.active)
+            panel.webview.postMessage({type: 'viewState', active: panel.active, visible: panel.visible})
         }, null, this.disposables)
         this.panel.onDidDispose(() => this.dispose(), null, this.disposables)
         this.panel.webview.onDidReceiveMessage((msg) => this.handleMessage(msg), null, this.disposables)
 
-        // Refresh entire webview when theme changes — ensures fresh CSS
-        // variables and re-initialises the SyntaxHighlighter from scratch.
+        // Refresh entire webview when theme changes - ensures fresh CSS
+        // variables and re-initialize the SyntaxHighlighter from scratch.
         this.themeChangeSubscription = onDidChangeTheme(() => {
-            vscode.window.showInformationMessage(`${PKG_CONFIG}: Please close & reopen the view for full syntax highlight support.`)
+            vscode.window.showInformationMessage(`Please close & reopen the view for full syntax highlight support.`)
 
             if (this.panel) {
                 this.panel.webview.html = this.getBaseHtml()
@@ -687,7 +219,16 @@ export class TimelineProvider {
         }
 
         // Compute diff
-        const diff = computeLineDiff(snapshotContent, this.currentFileContent)
+        const diff = await computeLineDiff(
+            snapshotContent,
+            this.currentFileContent,
+            () => generation !== this.renderGeneration || !this.panel,
+        )
+
+        if (!diff) {
+            return
+        }
+
         const leftLines = diff[0]
         const rightLines = diff[1]
         const diffEditorConfig = vscode.workspace.getConfiguration('diffEditor')
@@ -708,6 +249,14 @@ export class TimelineProvider {
         }
 
         for (let i = 0; i < Math.min(leftLines.length, rightLines.length); i++) {
+            if (i % 128 === 0) {
+                await yieldToEventLoop()
+
+                if (generation !== this.renderGeneration || !this.panel) {
+                    return
+                }
+            }
+
             if (leftLines[i].kind === 'removed' && rightLines[i].kind === 'added') {
                 const [leftInline, rightInline] = computeInlineDiff(leftLines[i].content, rightLines[i].content)
                 leftLines[i].inline = leftInline
@@ -728,24 +277,44 @@ export class TimelineProvider {
             return highlighted
         }
 
-        const leftHtmlLines = buildSideHtml(leftLines, hiddenRegions, hunkMap, highlight, 'removed', 'added', 'diff-removed', 'add', ADD_HUNK_TITLE)
-        const rightHtmlLines = buildSideHtml(rightLines, hiddenRegions, hunkMap, highlight, 'added', 'removed', 'diff-added', 'remove', REMOVE_HUNK_TITLE)
+        const leftHtmlLines = this.renderMode === 'unified'
+            ? []
+            : buildSideHtml({
+                lines        : leftLines, hiddenRegions, hunkMap, highlight,
+                changedKind  : 'removed', emptyKind    : 'added',
+                changedClass : 'diff-removed', action       : 'add', title        : ADD_HUNK_TITLE,
+            })
+        const rightHtmlLines = this.renderMode === 'unified'
+            ? []
+            : buildSideHtml({
+                lines        : rightLines, hiddenRegions, hunkMap, highlight,
+                changedKind  : 'added', emptyKind    : 'removed',
+                changedClass : 'diff-added', action       : 'remove', title        : REMOVE_HUNK_TITLE,
+            })
+        const unifiedHtml = this.renderMode === 'unified'
+            ? buildUnifiedHtml(leftLines, rightLines, highlight, hunkMap, hiddenRegions)
+            : ''
 
-        // Build unified diff HTML (interleaved)
-        const unifiedHtml = buildUnifiedHtml(leftLines, rightLines, highlight, hunkMap, hiddenRegions)
+        await yieldToEventLoop()
+
+        if (generation !== this.renderGeneration || !this.panel) {
+            return
+        }
 
         const ext = path.extname(this.currentFileUri?.fsPath || '')
 
         this.panel.webview.postMessage({
-            type       : 'render',
-            leftHtml   : leftHtmlLines.join(''),
-            rightHtml  : rightHtmlLines.join(''),
+            type              : 'render',
+            leftHtml          : leftHtmlLines.join(''),
+            rightHtml         : rightHtmlLines.join(''),
             unifiedHtml,
-            fileName   : path.basename(this.currentFileUri?.fsPath || ''),
-            extension  : ext,
+            mode              : this.renderMode,
+            fileName          : path.basename(this.currentFileUri?.fsPath || ''),
+            extension         : ext,
+            initialCursorLine : this.initialCursorLine,
             ...this.getNavigationState(),
-            hasChanges : snapshotContent !== this.currentFileContent,
-            hasUndo    : this.hasUndoContent(),
+            hasChanges        : snapshotContent !== this.currentFileContent,
+            hasUndo           : this.hasUndoContent(),
         })
     }
 
@@ -766,19 +335,14 @@ export class TimelineProvider {
 
     private async handleMessage(msg: any) {
         switch (msg.type) {
-            case 'navigate':
-                if (msg.direction === 'prev' && this.snapshotIndex < this.snapshots.length - 1) {
-                    this.snapshotIndex++
-                    this.renderGeneration++
+            case 'navigate': {
+                const step = msg.direction === 'prev' ? 1 : msg.direction === 'next' ? -1 : 0
+                const nextIndex = this.snapshotIndex + step
 
-                    if (msg.keyboard) {
-                        this.scheduleNavigationRender()
-                    } else {
-                        await this.renderSnapshot()
-                    }
-                } else if (msg.direction === 'next' && this.snapshotIndex > 0) {
-                    this.snapshotIndex--
+                if (step && nextIndex >= 0 && nextIndex < this.snapshots.length) {
+                    this.snapshotIndex = nextIndex
                     this.renderGeneration++
+                    this.initialCursorLine = undefined
 
                     if (msg.keyboard) {
                         this.scheduleNavigationRender()
@@ -788,14 +352,29 @@ export class TimelineProvider {
                 }
 
                 break
+            }
 
             case 'restore':
+                this.initialCursorLine = undefined
                 await this.restoreCurrentSnapshot()
                 break
+
+            case 'open-snapshot': {
+                const snapPath = this.snapshots[this.snapshotIndex]
+
+                if (snapPath) {
+                    const uri = vscode.Uri.file(snapPath)
+                    vscode.commands.executeCommand('vscode.open', uri)
+                    this.treeProvider?.selectSnapshotFile(snapPath)
+                }
+
+                break
+            }
 
             case 'goto':
                 this.cancelNavigationRender()
                 this.renderGeneration++
+                this.initialCursorLine = undefined
 
                 if (msg.index >= 0 && msg.index < this.snapshots.length && msg.index !== this.snapshotIndex) {
                     this.snapshotIndex = msg.index
@@ -807,7 +386,25 @@ export class TimelineProvider {
             case 'ready':
                 this.cancelNavigationRender()
                 this.renderGeneration++
+                this.renderMode = msg.mode === 'unified' ? 'unified' : 'side-by-side'
                 await this.renderSnapshot()
+                break
+
+            case 'render-mode': {
+                const mode = msg.mode === 'unified' ? 'unified' : 'side-by-side'
+
+                if (mode !== this.renderMode) {
+                    this.renderMode = mode
+                    this.renderGeneration++
+                    this.initialCursorLine = undefined
+                    await this.renderSnapshot()
+                }
+
+                break
+            }
+
+            case 'show-notification':
+                vscode.window.showInformationMessage(msg.message)
                 break
 
             case 'close':
@@ -816,11 +413,15 @@ export class TimelineProvider {
 
             case 'apply-hunk':
             case 'reject-hunk':
-                await this.applyHunk(msg.index)
+                this.panel?.webview.postMessage({type: 'action-result', applied: await this.applyHunk(msg.index)})
+                break
+
+            case 'apply-line':
+                this.panel?.webview.postMessage({type: 'action-result', applied: await this.applyLine(msg.hunkIndex, msg.alignedIndex, msg.action)})
                 break
 
             case 'undo':
-                await this.undoLastAction()
+                this.panel?.webview.postMessage({type: 'action-result', applied: await this.undoLastAction()})
                 break
         }
     }
@@ -840,9 +441,9 @@ export class TimelineProvider {
         }
     }
 
-    private async applyHunk(hunkIndex: number) {
+    private async applyHunk(hunkIndex: number): Promise<boolean> {
         if (!this.currentFileUri || this.snapshots.length === 0) {
-            return
+            return false
         }
 
         const snapshotPath = this.snapshots[this.snapshotIndex]
@@ -851,14 +452,19 @@ export class TimelineProvider {
         try {
             snapshotContent = fs.readFileSync(snapshotPath, 'utf-8')
         } catch {
-            return
+            return false
         }
 
-        const diff = computeLineDiff(snapshotContent, this.currentFileContent)
+        const diff = await computeLineDiff(snapshotContent, this.currentFileContent)
+
+        if (!diff) {
+            return false
+        }
+
         const hunks = computeHunks(diff[0], diff[1])
 
         if (hunkIndex < 0 || hunkIndex >= hunks.length) {
-            return
+            return false
         }
 
         const hunk = hunks[hunkIndex]
@@ -876,20 +482,93 @@ export class TimelineProvider {
                 this.discardLastUndoContent()
             }
 
-            return
+            return false
         }
 
         // Reload current content and re-render
         const doc = await vscode.workspace.openTextDocument(this.currentFileUri)
         this.currentFileContent = doc.getText()
         await this.renderSnapshot()
+
+        return true
     }
 
-    private async undoLastAction() {
-        if (!this.currentFileUri || !this.hasUndoContent()) {
-            vscode.window.showInformationMessage(`${PKG_CONFIG}: Nothing to undo.`)
+    private async applyLine(hunkIndex: number, alignedIndex: number, action: 'add' | 'remove'): Promise<boolean> {
+        if (!this.currentFileUri || this.snapshots.length === 0) {
+            return false
+        }
 
-            return
+        let snapshotContent: string
+
+        try {
+            snapshotContent = fs.readFileSync(this.snapshots[this.snapshotIndex], 'utf-8')
+        } catch {
+            return false
+        }
+
+        const diff = await computeLineDiff(snapshotContent, this.currentFileContent)
+
+        if (!diff) {
+            return false
+        }
+
+        const [leftLines, rightLines] = diff
+        const hunks = computeHunks(leftLines, rightLines)
+
+        if (hunkIndex < 0 || hunkIndex >= hunks.length) {
+            return false
+        }
+
+        const hunk = hunks[hunkIndex]
+        let currentOffset = 0
+
+        for (let i = hunk.alignedStart; i < leftLines.length && leftLines[i].kind !== 'unchanged'; i++) {
+            const isCurrentLine = rightLines[i].kind === 'added'
+
+            if (i === alignedIndex) {
+                const targetLine = hunk.currentStart + currentOffset
+                const capturedUndo = this.captureUndoContent(this.currentFileContent)
+                const edit = new vscode.WorkspaceEdit()
+
+                if (action === 'add') {
+                    const lineContent = leftLines[i].content
+
+                    if (isCurrentLine) {
+                        edit.replace(this.currentFileUri, new vscode.Range(targetLine, 0, targetLine + 1, 0), lineContent + '\n')
+                    } else {
+                        edit.insert(this.currentFileUri, new vscode.Position(targetLine, 0), lineContent + '\n')
+                    }
+                } else {
+                    edit.delete(this.currentFileUri, new vscode.Range(targetLine, 0, targetLine + 1, 0))
+                }
+
+                if (!await vscode.workspace.applyEdit(edit)) {
+                    if (capturedUndo) {
+                        this.discardLastUndoContent()
+                    }
+
+                    return false
+                }
+
+                this.currentFileContent = (await vscode.workspace.openTextDocument(this.currentFileUri)).getText()
+                await this.renderSnapshot()
+
+                return true
+            }
+
+            if (isCurrentLine) {
+                currentOffset++
+            }
+        }
+
+        return false
+    }
+
+    private async undoLastAction(): Promise<boolean> {
+        if (!this.currentFileUri || !this.hasUndoContent()) {
+            vscode.window.showInformationMessage(`Nothing to undo.`)
+
+            return false
         }
 
         let undoContent: string | null
@@ -900,14 +579,14 @@ export class TimelineProvider {
             this.discardLastUndoContent()
             await this.renderSnapshot()
 
-            return
+            return false
         }
 
         if (undoContent === null) {
             this.discardLastUndoContent()
             await this.renderSnapshot()
 
-            return
+            return false
         }
 
         const edit = new vscode.WorkspaceEdit()
@@ -917,12 +596,14 @@ export class TimelineProvider {
         const applied = await vscode.workspace.applyEdit(edit)
 
         if (!applied) {
-            return
+            return false
         }
 
         this.discardLastUndoContent()
         this.currentFileContent = (await vscode.workspace.openTextDocument(this.currentFileUri)).getText()
         await this.renderSnapshot()
+
+        return true
     }
 
     private isFileBackedUndoEnabled(): boolean {
@@ -1059,6 +740,7 @@ export class TimelineProvider {
 
     private getBaseHtml(): string {
         const defaultView = vscode.workspace.getConfiguration('localHistory').get<string>('defaultView', 'side-by-side')
+        this.renderMode = defaultView === 'unified' ? 'unified' : 'side-by-side'
         const breakpoint = vscode.workspace.getConfiguration('diffEditor').get<number>('renderSideBySideInlineBreakpoint', 900)
         const editorLineHeight = vscode.workspace.getConfiguration('editor').get<number>('lineHeight', 0)
         const lineHeight = editorLineHeight > 0 ? `${editorLineHeight}px` : '1.5em'
@@ -1075,7 +757,8 @@ export class TimelineProvider {
         return html
             .replace(/__STYLE_URI__/g, webview.asWebviewUri(vscode.Uri.joinPath(mediaUri, 'style.css')).toString())
             .replace(/__SCRIPT_URI__/g, webview.asWebviewUri(vscode.Uri.joinPath(mediaUri, 'script.js')).toString())
-            .replace(/__SCROLL_TOP_ICON_URI__/g, webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'images/icons/sort-up-filled.svg')).toString())
+            .replace(/__SCROLL_TOP_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'sort-up-filled.svg'))
+            .replace(/__OPEN_FILE_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'exit-pip-outline.svg'))
             .replace(/__CSP_SOURCE__/g, webview.cspSource)
             .replace(/__BREAKPOINT__/g, String(breakpoint))
             .replace(/__INITIAL_UNIFIED__/g, String(defaultView === 'unified'))
@@ -1094,6 +777,7 @@ export class TimelineProvider {
         this.snapshotIndex = 0
         this.currentFileContent = ''
         this.currentFileUri = undefined
+        this.initialCursorLine = undefined
         this.setActiveContext(false)
 
         if (TimelineProvider.active === this) {
@@ -1123,3 +807,9 @@ export class TimelineProvider {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Re-export for extension.ts
+// ---------------------------------------------------------------------------
+
+import HistoryTreeProvider from './HistoryTreeProvider'
