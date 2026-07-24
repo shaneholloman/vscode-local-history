@@ -1,712 +1,856 @@
-    * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-    }
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
 
-    :focus,
-    :focus-visible {
-        box-shadow: none;
-        outline: none;
-    }
+button {
+    border: none;
+}
 
-    :root {
-        --bg: var(--vscode-editor-background, #1e1e1e);
-        --fg: var(--vscode-editor-foreground, #d4d4d4);
-        --font: var(--vscode-editor-font-family, 'Cascadia Code', 'Fira Code', 'Consolas', monospace);
-        --font-size: var(--vscode-editor-font-size, 14px);
-        --line-height: 1.5em;
-        --added-bg: var(--vscode-diffEditor-insertedTextBackground, rgb(155 185 85 / 20%));
-        --removed-bg: var(--vscode-diffEditor-removedTextBackground, rgb(255 0 0 / 20%));
-        --border: var(--vscode-panel-border, #333333);
-        --title-bg: var(--vscode-titleBar-activeBackground, #2d2d2d);
-        --title-fg: var(--vscode-titleBar-activeForeground, #cccccc);
-        --btn-bg: var(--vscode-button-background, #0e639c);
-        --btn-fg: var(--vscode-button-foreground, #ffffff);
-        --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
-        --scrollbar: var(--vscode-scrollbarSlider-background, #424242);
-        --hover-bg: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground, transparent));
-        --stripe: var(--vscode-editorIndentGuide-background, var(--border));
-        --cursor-flash-bg: var(--vscode-editor-findMatchHighlightBackground, rgb(234 92 0 / 20%));
-        --btn-bottom: 40px;
-    }
+:focus {
+    box-shadow: none;
+    outline: none;
+}
 
-    html,
-    body {
-        background: var(--bg);
-        color: var(--fg);
-        font-family: var(--font);
-        font-size: var(--font-size);
-        height: 100%;
-        overflow: hidden;
-    }
+:root {
+    --bg: var(--vscode-editor-background);
+    --fg: var(--vscode-editor-foreground);
+    --font: var(--vscode-editor-font-family, 'Cascadia Code', 'Fira Code', 'Consolas', monospace);
+    --font-size: var(--vscode-editor-font-size, 14px);
+    --line-height: 1.5em;
+    --added-bg: var(--vscode-diffEditor-insertedTextBackground);
+    --removed-bg: var(--vscode-diffEditor-removedTextBackground);
+    --border: var(--vscode-panel-border);
+    --title-bg: var(--vscode-titleBar-activeBackground);
+    --title-fg: var(--vscode-titleBar-activeForeground);
+    --btn-bg: var(--vscode-button-background);
+    --btn-fg: var(--vscode-button-foreground);
+    --btn-hover: var(--vscode-button-hoverBackground);
+    --scrollbar: var(--vscode-scrollbarSlider-background);
+    --hover-bg: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+    --stripe: var(--vscode-editorIndentGuide-background, var(--border));
+    --cursor-flash-bg: var(--vscode-editor-findMatchHighlightBackground);
+    --btn-bottom: 20px;
+}
 
-    body {
-        display: flex;
-        flex-direction: column;
-    }
+html,
+body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    font-size: var(--font-size);
+    height: 100%;
+    overflow: hidden;
+}
 
-    .loading-indicator {
-        display: none;
-        height: 100%;
-        left: 0;
-        place-items: center;
-        position: absolute;
-        top: 0;
-        visibility: hidden;
-        width: 100%;
-        z-index: 100;
-    }
+body {
+    display: flex;
+    flex-direction: column;
+}
 
-    .diff-container.loading .loading-indicator {
-        display: grid;
-        visibility: visible;
-    }
+.loading-indicator {
+    display: none;
+    height: 100%;
+    left: 0;
+    place-items: center;
+    position: absolute;
+    top: 0;
+    width: 100%;
+    z-index: 100;
+}
 
-    .loading-indicator span {
-        animation: loading-spin 0.7s linear infinite;
-        border: 2px solid var(--border);
-        border-radius: 50%;
-        border-top-color: var(--btn-bg);
-        height: 24px;
-        width: 24px;
-    }
+.diff-container.loading .loading-indicator {
+    display: grid;
+}
 
-    @keyframes loading-spin {
-        to {
-            transform: rotate(360deg);
-        }
-    }
+.loading-indicator span {
+    animation: loading-spin 0.7s linear infinite;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    border-top-color: var(--btn-bg);
+    height: 24px;
+    width: 24px;
+}
 
-    #hoverTooltip {
-        background: var(--vscode-editorHoverWidget-background, var(--bg));
-        border: 1px solid var(--vscode-editorHoverWidget-border, var(--border));
-        border-radius: var(--vscode-cornerRadius-medium);
-        box-shadow: var(--vscode-widget-shadow, 0 2px 8px rgb(0 0 0 / 35%));
-        color: var(--vscode-editorHoverWidget-foreground, var(--fg));
-        display: none;
-        font-size: 12px;
-        line-height: 1.3;
-        max-width: 320px;
-        padding: 4px 8px;
-        pointer-events: none;
-        position: fixed;
-        z-index: 100;
+@keyframes loading-spin {
+    to {
+        transform: rotate(360deg);
     }
+}
 
-    #hoverTooltip.visible {
-        display: block;
-    }
+#hoverTooltip {
+    background: var(--vscode-editorHoverWidget-background, var(--bg));
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--border));
+    border-radius: var(--vscode-cornerRadius-medium);
+    box-shadow: var(--vscode-widget-shadow, 0 2px 8px rgb(0 0 0 / 35%));
+    color: var(--vscode-editorHoverWidget-foreground, var(--fg));
+    display: none;
+    font-size: 12px;
+    line-height: 1.3;
+    max-width: 320px;
+    padding: 4px 8px;
+    pointer-events: none;
+    position: fixed;
+    z-index: 100;
+}
 
-    #ctxMenu {
-        background: var(--vscode-menu-background, var(--bg));
-        border: 1px solid var(--vscode-menu-border, var(--border));
-        border-radius: 6px;
-        box-shadow: var(--vscode-widget-shadow, 0 2px 8px rgb(0 0 0 / 35%));
-        display: none;
-        padding: 4px;
-        position: fixed;
-        z-index: 200;
-    }
+#hoverTooltip.visible {
+    display: block;
+}
 
-    .ctx-item {
-        background: transparent;
-        border: none;
-        color: var(--vscode-menu-foreground, var(--fg));
-        cursor: pointer;
-        display: block;
-        font-family: var(--vscode-font-family);
-        font-size: 13px;
-        line-height: 22px;
-        padding: 6px 12px;
-        text-align: left;
-        white-space: nowrap;
-        width: 100%;
-    }
+#ctxMenu {
+    background: var(--vscode-menu-background, var(--bg));
+    border: 1px solid var(--vscode-menu-border, var(--border));
+    border-radius: calc(var(--vscode-cornerRadius-medium) + 2px);
+    box-shadow: var(--vscode-widget-shadow, 0 2px 8px rgb(0 0 0 / 35%));
+    display: none;
+    padding: 4px;
+    position: fixed;
+    z-index: 200;
+}
 
-    .ctx-item:hover {
-        background: var(--vscode-menu-selectionBackground, var(--btn-bg));
-        border-radius: 4px;
-        color: var(--vscode-menu-selectionForeground, var(--btn-fg));
-    }
+.ctx-item {
+    background: transparent;
+    color: var(--vscode-menu-foreground, var(--fg));
+    cursor: pointer;
+    display: block;
+    font-family: var(--vscode-font-family);
+    font-size: 13px;
+    line-height: 22px;
+    padding: 6px 12px;
+    text-align: left;
+    white-space: nowrap;
+    width: 100%;
+}
 
-    /* Title bar */
-    .title-bar {
-        align-items: center;
-        background: var(--title-bg);
-        color: var(--title-fg);
-        display: flex;
-        flex-shrink: 0;
-        font-size: 12px;
-        justify-content: space-between;
-        padding: 8px 12px 4px;
-        position: relative;
-        user-select: none;
-    }
+.ctx-item:hover {
+    background: var(--vscode-menu-selectionBackground, var(--btn-bg));
+    color: var(--vscode-menu-selectionForeground, var(--btn-fg));
+}
 
-    .title-bar .nav-area {
-        align-items: center;
-        display: flex;
-        gap: 6px;
-    }
+/* Title bar */
+.title-bar {
+    align-items: center;
+    background: var(--title-bg);
+    color: var(--title-fg);
+    display: flex;
+    flex-shrink: 0;
+    font-size: 12px;
+    justify-content: space-between;
+    padding: 8px 12px 4px;
+    position: relative;
+    user-select: none;
+}
 
-    .title-bar .nav-btn {
-        background: none;
-        border: 1px solid transparent;
-        border-radius: 3px;
-        color: var(--fg);
-        cursor: pointer;
-        font-size: 14px;
-        opacity: 0.7;
-        padding: 2px 6px;
-    }
+.title-bar .nav-area {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+}
 
-    .title-bar .nav-btn:hover:not(:disabled) {
-        background: var(--hover-bg);
+.title-bar .nav-btn,
+.title-bar .title-close-btn {
+    background: none;
+    border-radius: var(--vscode-cornerRadius-medium);
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 14px;
+    opacity: 0.7;
+    padding: 4px;
+}
+
+.title-bar .nav-btn:not(:disabled) {
+    background: var(--hover-bg);
+}
+
+.title-bar .nav-btn:hover:not(:disabled) {
+    opacity: 1;
+}
+
+.title-bar .nav-btn:disabled {
+    cursor: default;
+    opacity: 0.3;
+}
+
+.title-bar .nav-btn .ico,
+.title-bar .title-close-btn .ico {
+    display: block;
+    height: 14px;
+    width: 14px;
+}
+
+.title-bar .counter {
+    font-size: 11px;
+    min-width: 60px;
+    opacity: 0.7;
+    text-align: center;
+}
+
+.title-bar .title-close-btn {
+    background: var(--btn-bg);
+}
+
+.title-bar .title-close-btn:hover {
+    opacity: 1;
+}
+
+.title-bar .view-toggle,
+.title-bar .undo-btn {
+    background: var(--btn-bg);
+    border-radius: var(--vscode-cornerRadius-medium);
+    color: var(--btn-fg);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 4px 8px;
+}
+
+.title-bar .view-toggle:hover,
+.title-bar .undo-btn:hover {
+    background: var(--btn-hover);
+}
+
+.title-bar .undo-btn {
+    display: none;
+}
+
+.title-bar .undo-btn.visible {
+    display: inline-block;
+}
+
+/* Diff panels */
+.diff-container {
+    --line-number-digits: 1;
+    --line-number-width: calc(var(--line-number-digits) * 1ch + 24px);
+
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+.diff-container.loading {
+    visibility: hidden;
+}
+
+.diff-container::before,
+.diff-container::after {
+    background: var(--border);
+    bottom: 0;
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    width: 1px;
+    z-index: 1;
+}
+
+.diff-container::before {
+    left: calc(50% + var(--line-number-width) / 2);
+}
+
+.diff-container::after {
+    left: calc(50% - var(--line-number-width) / 2);
+}
+
+.unified-mode::before {
+    left: var(--line-number-width);
+}
+
+.unified-mode::after,
+.same-content::after {
+    display: none;
+}
+
+.same-content::before {
+    left: var(--line-number-width);
+}
+
+.diff-pane {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    position: relative;
+}
+
+.diff-pane-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overflow-anchor: none;
+    position: relative;
+}
+
+#leftPane {
+    flex-basis: calc(50% - var(--line-number-width) / 2);
+}
+
+#rightPane {
+    flex-basis: calc(50% + var(--line-number-width) / 2);
+}
+
+#leftPane .ln-num {
+    display: none;
+}
+
+#leftPane .line {
+    flex-direction: row-reverse;
+}
+
+.same-content #leftPane {
+    display: none;
+}
+
+.same-content .unchanged-region {
+    padding-left: 0;
+}
+
+.code-lines {
+    min-width: 0;
+    padding-bottom: 4px;
+}
+
+.line {
+    display: flex;
+    line-height: var(--line-height);
+    min-height: var(--line-height);
+    overflow-wrap: anywhere;
+    position: relative;
+    white-space: pre-wrap;
+}
+
+.ln-num {
+    color: var(--vscode-editorLineNumber-foreground);
+    cursor: pointer;
+    flex: none;
+    padding: 0 12px;
+    text-align: right;
+    user-select: none;
+    width: var(--line-number-width);
+}
+
+.line .ln {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 0 8px;
+}
+
+.diff-removed .ln {
+    background: var(--removed-bg);
+}
+
+.diff-added .ln {
+    background: var(--added-bg);
+}
+
+.inline-diff-removed {
+    background: var(--vscode-diffEditor-removedTextBackground, rgb(255 0 0 / 35%));
+    box-shadow: inset 0 -2px var(--vscode-diffEditor-removedTextBorder, var(--removed-bg));
+}
+
+.inline-diff-added {
+    background: var(--vscode-diffEditor-insertedTextBackground, rgb(155 185 85 / 35%));
+    box-shadow: inset 0 -2px var(--vscode-diffEditor-insertedTextBorder, var(--added-bg));
+}
+
+.diff-empty .ln {
+    background: repeating-linear-gradient(-45deg, var(--stripe) 0 2px, transparent 2px 10px);
+}
+
+.clickable-hunk,
+.clickable-region {
+    cursor: pointer;
+}
+
+.region-block {
+    display: block;
+    height: 0;
+    overflow: hidden;
+    transition: height 0.3s ease;
+}
+
+.region-block.expanded {
+    height: auto;
+}
+
+.region-inner {
+    min-height: 0;
+}
+
+.unchanged-region {
+    background: var(--bg);
+    color: var(--vscode-descriptionForeground);
+    justify-content: center;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.unchanged-region .hidden-label {
+    background: var(--vscode-editor-lineHighlightBackground, transparent);
+}
+
+#leftPane .unchanged-region {
+    padding-left: 0;
+}
+
+.hidden-label {
+    flex: 1;
+    text-align: center;
+}
+
+/* Unified view */
+.unified-pane {
+    display: none;
+    flex: 1;
+    overflow: auto;
+    overflow-anchor: none;
+    position: relative;
+}
+
+.unified-mode .unified-pane {
+    display: block;
+}
+
+.unified-mode .diff-pane {
+    display: none;
+}
+
+.unified-mode .line:not(.unchanged-region) {
+    contain-intrinsic-size: var(--line-height);
+    content-visibility: auto;
+}
+
+/* Restore button overlaid on snapshot pane */
+.restore-btn,
+.action-btn {
+    background: var(--btn-bg);
+    border-radius: var(--vscode-cornerRadius-medium);
+    color: var(--btn-fg);
+    cursor: pointer;
+    font-size: 12px;
+    height: 32px;
+    opacity: 0.9;
+    padding: 8px;
+}
+
+.restore-btn:hover,
+.action-btn:hover {
+    background: var(--btn-hover);
+    opacity: 1;
+}
+
+.action-btns {
+    bottom: var(--btn-bottom);
+    display: flex;
+    gap: 8px;
+    position: fixed;
+    z-index: 20;
+}
+
+.diff-actions {
+    right: calc(50% + var(--line-number-width) / 2 + 20px);
+}
+
+.unified-mode .diff-actions {
+    right: 60px;
+}
+
+.action-btn.icon-btn {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    padding: 0;
+    width: 32px;
+}
+
+.action-btn.icon-btn img {
+    height: 16px;
+    width: 16px;
+}
+
+.misc-btns {
+    right: 20px;
+}
+
+.unified-mode .misc-btns {
+    flex-direction: column;
+}
+
+.scroll-top-btn {
+    align-items: center;
+    background: var(--btn-bg);
+    border-radius: var(--vscode-cornerRadius-medium);
+    color: var(--btn-fg);
+    cursor: pointer;
+    font-size: 18px;
+    height: 32px;
+    justify-content: center;
+    opacity: 1;
+    padding: 0;
+    width: 32px;
+}
+
+.scroll-top-btn.hidden {
+    display: none;
+}
+
+.scroll-top-btn img {
+    height: 20px;
+    pointer-events: none;
+    width: 20px;
+}
+
+.scroll-top-btn.scroll-bottom img {
+    transform: rotate(180deg);
+}
+
+/* Scrollbar */
+.diff-pane-body::-webkit-scrollbar {
+    height: 4px;
+    width: 4px;
+}
+
+.diff-pane-body::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+    border-radius: var(--vscode-cornerRadius-medium);
+}
+
+.diff-pane-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* Timeline strip */
+.timeline-strip {
+    background: var(--title-bg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    min-height: 50px;
+    overflow: auto hidden;
+}
+
+.timeline-track {
+    display: flex;
+    height: 100%;
+    min-width: 100%;
+    padding: 3px 0;
+    position: relative;
+    width: max-content;
+}
+
+.timeline-rail {
+    background: var(--border);
+    height: 2px;
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+    top: 7px;
+    z-index: 1;
+}
+
+.timeline-track::before,
+.timeline-track::after {
+    content: '';
+    flex: 0 0 52px;
+    pointer-events: none;
+}
+
+.timeline-point {
+    align-items: center;
+    background: none;
+    color: var(--fg);
+    cursor: pointer;
+    display: flex;
+    flex: 1 0 114px;
+    flex-direction: column;
+    font: inherit;
+    height: 100%;
+    justify-content: flex-start;
+    min-width: 0;
+    padding: 0 4px;
+    position: relative;
+    z-index: 2;
+}
+
+.timeline-dot {
+    background: var(--stripe);
+    border: 2px solid var(--title-bg);
+    border-radius: 50%;
+    height: 10px;
+    position: relative;
+    transition: transform 0.15s ease, background 0.15s ease;
+    width: 10px;
+    z-index: 15;
+}
+
+.timeline-point:hover .timeline-dot,
+.timeline-point.active .timeline-dot {
+    transform: scale(1.7);
+}
+
+.timeline-point.active .timeline-dot {
+    background: var(--btn-bg);
+}
+
+.timeline-date {
+    font-size: 10px;
+    line-height: 1.2;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+    position: absolute;
+    right: 4px;
+    text-align: center;
+    top: 18px;
+    white-space: break-spaces;
+    width: calc(100% - 8px);
+}
+
+.zoom-controls {
+    align-items: center;
+    background: var(--btn-bg);
+    border-radius: var(--vscode-cornerRadius-medium);
+    display: flex;
+    gap: 4px;
+    justify-content: space-between;
+    left: 50%;
+    padding: 4px 8px;
+    transform: translateX(-50%);
+    z-index: 1;
+}
+
+.zoom-btn {
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 17px;
+    line-height: 1;
+    padding: 0;
+    width: 28px;
+}
+
+.zoom-btn:hover {
+    background: var(--bg);
+    color: var(--fg);
+}
+
+#zoomResetBtn {
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    font-size: 10px;
+    width: 50px;
+}
+
+@keyframes hunkChange {
+    from {
         opacity: 1;
+        transform: translateX(0);
     }
 
-    .title-bar .nav-btn:disabled {
-        cursor: default;
-        opacity: 0.3;
+    to {
+        opacity: 0;
+        transform: translateX(24px);
+    }
+}
+
+.hunk-changing {
+    animation: hunkChange 0.18s ease forwards;
+    pointer-events: none;
+}
+
+@keyframes hunkReverse {
+    from {
+        opacity: 0;
+        transform: translateX(24px);
     }
 
-    .title-bar .counter {
-        font-size: 11px;
-        min-width: 60px;
-        opacity: 0.7;
-        text-align: center;
-    }
-
-    .title-bar .view-toggle {
-        background: var(--btn-bg);
-        border: none;
-        border-radius: var(--vscode-cornerRadius-medium);
-        color: var(--btn-fg);
-        cursor: pointer;
-        font-size: 11px;
-        padding: 4px 8px;
-    }
-
-    .title-bar .view-toggle:hover {
-        background: var(--btn-hover);
-    }
-
-    .title-bar .undo-btn {
-        background: var(--btn-bg);
-        border: none;
-        border-radius: var(--vscode-cornerRadius-medium);
-        color: var(--btn-fg);
-        cursor: pointer;
-        display: none;
-        font-size: 11px;
-        padding: 4px 8px;
-    }
-
-    .title-bar .undo-btn:hover {
-        background: var(--btn-hover);
-    }
-
-    .title-bar .undo-btn.visible {
-        display: inline-block;
-    }
-
-    /* Diff panels */
-    .diff-container {
-        --line-number-digits: 1;
-        --line-number-width: calc(var(--line-number-digits) * 1ch + 24px);
-
-        display: flex;
-        flex: 1;
-        min-height: 0;
-        position: relative;
-    }
-
-    .diff-container.loading {
-        visibility: hidden;
-    }
-
-    .diff-container::before,
-    .diff-container::after {
-        background: var(--border);
-        bottom: 0;
-        content: '';
-        opacity: 0.5;
-        pointer-events: none;
-        position: absolute;
-        top: 0;
-        width: 1px;
-        z-index: 1;
-    }
-
-    .diff-container::before {
-        left: calc(50% + var(--line-number-width) / 2);
-    }
-
-    .diff-container::after {
-        left: calc(50% - var(--line-number-width) / 2);
-    }
-
-    .unified-mode::before {
-        left: var(--line-number-width);
-    }
-
-    .unified-mode::after,
-    .same-content::after {
-        display: none;
-    }
-
-    .same-content::before {
-        left: var(--line-number-width);
-    }
-
-    .diff-pane {
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-        position: relative;
-    }
-
-    .diff-pane-body {
-        flex: 1;
-        min-height: 0;
-        overflow: auto;
-        overflow-anchor: none;
-        position: relative;
-    }
-
-    #leftPane {
-        flex-basis: calc(50% - var(--line-number-width) / 2);
-    }
-
-    #rightPane {
-        flex-basis: calc(50% + var(--line-number-width) / 2);
-    }
-
-    #leftPane .ln-num {
-        display: none;
-    }
-
-    #leftPane .line {
-        flex-direction: row-reverse;
-    }
-
-    .same-content #leftPane {
-        display: none;
-    }
-
-    .same-content .unchanged-region {
-        padding-left: 0;
-    }
-
-    .code-lines {
-        min-width: 0;
-        padding-bottom: 4px;
-    }
-
-    .line {
-        display: flex;
-        line-height: var(--line-height);
-        min-height: var(--line-height);
-        overflow-wrap: anywhere;
-        position: relative;
-        white-space: pre-wrap;
-    }
-
-    .ln-num {
-        color: var(--vscode-editorLineNumber-foreground, #858585);
-        flex: none;
-        min-width: var(--line-number-width);
-        padding: 0 12px;
-        text-align: right;
-        user-select: none;
-        width: var(--line-number-width);
-    }
-
-    .line .ln {
-        flex: 1;
-        min-width: 0;
-        overflow-wrap: anywhere;
-        padding: 0 8px;
-    }
-
-    .diff-removed .ln {
-        background: var(--removed-bg);
-    }
-
-    .diff-added .ln {
-        background: var(--added-bg);
-    }
-
-    .inline-diff-removed {
-        background: var(--vscode-diffEditor-removedTextBackground, rgb(255 0 0 / 35%));
-        box-shadow: inset 0 -2px var(--vscode-diffEditor-removedTextBorder, var(--removed-bg));
-    }
-
-    .inline-diff-added {
-        background: var(--vscode-diffEditor-insertedTextBackground, rgb(155 185 85 / 35%));
-        box-shadow: inset 0 -2px var(--vscode-diffEditor-insertedTextBorder, var(--added-bg));
-    }
-
-    .diff-empty .ln {
-        background: repeating-linear-gradient(-45deg, var(--stripe) 0 2px, transparent 2px 10px);
-    }
-
-    .clickable-hunk,
-    .clickable-region {
-        cursor: pointer;
-    }
-
-    .region-block {
-        display: block;
-        height: 0;
-        overflow: hidden;
-        transition: height 0.3s ease;
-    }
-
-    .region-block.expanded {
-        height: auto;
-    }
-
-    .region-inner {
-        min-height: 0;
-    }
-
-    .unchanged-region {
-        background: var(--bg);
-        color: var(--vscode-descriptionForeground, #888888);
-        justify-content: center;
-        position: sticky;
-        top: 0;
-        z-index: 2;
-    }
-
-    .unchanged-region .hidden-label {
-        background: var(--vscode-editor-lineHighlightBackground, transparent);
-    }
-
-    #leftPane .unchanged-region {
-        padding-left: 0;
-    }
-
-    .hidden-label {
-        flex: 1;
-        text-align: center;
-    }
-
-    /* Unified view */
-    .unified-pane {
-        display: none;
-        flex: 1;
-        overflow: auto;
-        overflow-anchor: none;
-        position: relative;
-    }
-
-    .unified-mode .unified-pane {
-        display: block;
-    }
-
-    .unified-mode .diff-pane {
-        display: none;
-    }
-
-    .unified-mode .line:not(.unchanged-region) {
-        contain-intrinsic-size: var(--line-height);
-        content-visibility: auto;
-    }
-
-    /* Restore button overlaid on snapshot pane */
-    .restore-btn {
-        background: var(--btn-bg);
-        border: none;
-        border-radius: var(--vscode-cornerRadius-medium);
-        color: var(--btn-fg);
-        cursor: pointer;
-        font-size: 12px;
-        height: 32px;
-        opacity: 0.9;
-        padding: 8px;
-    }
-
-    .restore-btn:hover {
-        background: var(--btn-hover);
+    to {
         opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.hunk-reversing {
+    animation: hunkReverse 0.18s ease forwards;
+    pointer-events: none;
+}
+
+.cloak {
+    visibility: hidden;
+}
+
+@keyframes cursor-flash {
+    0%,
+    100% {
+        background-color: transparent;
     }
 
-    .diff-actions {
-        bottom: var(--btn-bottom);
-        display: flex;
-        gap: 8px;
-        position: fixed;
-        right: calc(50% + var(--line-number-width) / 2 + 20px);
-        z-index: 20;
+    30% {
+        background-color: var(--cursor-flash-bg);
     }
 
-    .unified-mode .diff-actions {
-        right: 60px;
+    70% {
+        background-color: var(--cursor-flash-bg);
     }
+}
 
-    .action-btn {
-        background: var(--btn-bg);
-        border: none;
-        border-radius: var(--vscode-cornerRadius-medium);
-        color: var(--btn-fg);
-        cursor: pointer;
-        font-size: 12px;
-        height: 32px;
-        opacity: 0.9;
-        padding: 8px;
-    }
+.line.cursor-flash {
+    animation: cursor-flash 0.4s ease-out 3;
+}
 
-    .action-btn:hover {
-        background: var(--btn-hover);
-        opacity: 1;
-    }
+/* Search bar */
+.search-area {
+    align-items: center;
+    background: var(--vscode-editorWidget-background, var(--bg));
+    border: 1px solid var(--vscode-editorWidget-border, var(--border));
+    border-radius: var(--vscode-cornerRadius-medium);
+    box-shadow: var(--vscode-widget-shadow, 0 2px 8px rgb(0 0 0 / 35%));
+    display: none;
+    gap: 8px;
+    padding: 4px 8px;
+    position: fixed;
+    right: 20px;
+    top: 50px;
+    z-index: 100;
+}
 
-    .action-btn.icon-btn {
-        align-items: center;
-        display: inline-flex;
-        justify-content: center;
-        padding: 0;
-        width: 32px;
-    }
+.search-area.active {
+    display: flex;
+}
 
-    .action-btn.icon-btn img {
-        height: 16px;
-        width: 16px;
-    }
+.search-input {
+    background: var(--vscode-input-background, var(--bg));
+    border: 1px solid var(--vscode-input-border, var(--border));
+    border-radius: var(--vscode-cornerRadius-medium);
+    color: var(--vscode-input-foreground, var(--fg));
+    font-family: var(--vscode-font-family, inherit);
+    font-size: 12px;
+    line-height: 20px;
+    padding: 1px 6px;
+    width: 150px;
+}
 
-    .scroll-top-btn {
-        align-items: center;
-        background: var(--btn-bg);
-        border: none;
-        border-radius: var(--vscode-cornerRadius-medium);
-        bottom: var(--btn-bottom);
-        color: var(--btn-fg);
-        cursor: pointer;
-        display: flex;
-        font-size: 18px;
-        height: 32px;
-        justify-content: center;
-        opacity: 1;
-        padding: 0;
-        position: fixed;
-        right: 20px;
-        width: 32px;
-        z-index: 20;
-    }
+.search-input:focus {
+    border-color: var(--vscode-focusBorder, var(--btn-bg));
+}
 
-    .scroll-top-btn.hidden {
-        display: none;
-    }
+.search-input::placeholder {
+    color: var(--vscode-input-placeholderForeground, var(--stripe));
+}
 
-    .scroll-top-btn img {
-        height: 20px;
-        pointer-events: none;
-        width: 20px;
-    }
+.search-counter {
+    color: var(--fg);
+    font-family: var(--vscode-font-family, inherit);
+    font-size: 11px;
+    min-width: 32px;
+    opacity: 0.7;
+    text-align: center;
+}
 
-    .scroll-top-btn.scroll-bottom img {
-        transform: rotate(180deg);
-    }
+.search-btn {
+    background: none;
+    border-radius: var(--vscode-cornerRadius-medium);
+    color: var(--fg);
+    cursor: pointer;
+    opacity: 0.7;
+    padding: 4px;
+}
 
-    /* Scrollbar */
-    .diff-pane-body::-webkit-scrollbar {
-        height: 4px;
-        width: 4px;
-    }
+.search-btn:not(:disabled) {
+    background: var(--hover-bg);
+}
 
-    .diff-pane-body::-webkit-scrollbar-thumb {
-        background: var(--scrollbar);
-        border-radius: var(--vscode-cornerRadius-medium);
-    }
+.search-btn:hover:not(:disabled) {
+    opacity: 1;
+}
 
-    .diff-pane-body::-webkit-scrollbar-track {
-        background: transparent;
-    }
+.search-btn:disabled {
+    cursor: default;
+    opacity: 0.2;
+}
 
-    /* Timeline strip */
-    .timeline-strip {
-        background: var(--title-bg);
-        border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
-        min-height: 50px;
-        overflow: auto hidden;
-    }
+.search-close-btn:hover {
+    opacity: 1;
+}
 
-    .timeline-track {
-        align-items: stretch;
-        display: flex;
-        flex-direction: row;
-        height: 100%;
-        min-width: 100%;
-        padding: 3px 0;
-        position: relative;
-        width: max-content;
-    }
+.search-btn .ico {
+    display: block;
+    height: 12px;
+    width: 12px;
+}
 
-    .timeline-rail {
-        background: var(--border);
-        height: 2px;
-        left: 0;
-        pointer-events: none;
-        position: absolute;
-        right: 0;
-        top: 7px;
-        z-index: 1;
-    }
+.ico {
+    background-color: var(--fg);
+    mask-repeat: no-repeat;
+    mask-size: contain;
+    pointer-events: none;
+}
 
-    .timeline-track::before,
-    .timeline-track::after {
-        content: '';
-        flex: 0 0 52px;
-        pointer-events: none;
-    }
+/* Search highlight in diff */
+.highlight-match.searched .ln {
+    background: none !important;
+}
 
-    .timeline-point {
-        align-items: center;
-        background: none;
-        border: 0;
-        color: var(--fg);
-        cursor: pointer;
-        display: flex;
-        flex: 1 0 114px;
-        flex-direction: column;
-        font: inherit;
-        height: 100%;
-        justify-content: flex-start;
-        min-width: 0;
-        padding: 0 4px;
-        pointer-events: auto;
-        position: relative;
-        z-index: 2;
-    }
+.highlight-match.searched {
+    background: var(--vscode-editor-findMatchHighlightBackground) !important;
+}
 
-    .timeline-dot {
-        background: var(--stripe);
-        border: 2px solid var(--title-bg);
-        border-radius: 50%;
-        height: 10px;
-        pointer-events: auto;
-        position: relative;
-        transition: transform 0.15s ease, background 0.15s ease;
-        width: 10px;
-        z-index: 15;
-    }
+mark.highlight-match.searched {
+    background: yellow !important;
+    border-radius: 2px;
+    color: black;
+    padding: 2px;
+}
 
-    .timeline-point:hover .timeline-dot,
-    .timeline-point.active .timeline-dot {
-        transform: scale(1.7);
-    }
+/* Pin feature */
+.ln-num:hover {
+    background: var(--vscode-list-hoverBackground);
+    color: var(--vscode-list-hoverForeground);
+}
 
-    .timeline-point.active .timeline-dot {
-        background: var(--btn-bg);
-    }
+.line.pinned > .ln-num {
+    background: var(--vscode-editor-rangeHighlightBackground);
+    color: var(--vscode-editorLightBulb-foreground);
+    font-weight: 700;
+}
 
-    .timeline-date {
-        font-size: 10px;
-        line-height: 1.2;
-        max-width: 100%;
-        overflow-wrap: anywhere;
-        pointer-events: none;
-        position: absolute;
-        right: 4px;
-        text-align: center;
-        top: 18px;
-        white-space: break-spaces;
-        width: calc(100% - 8px);
-    }
+.pin-btn {
+    align-items: center;
+    background: var(--btn-bg);
+    border-radius: var(--vscode-cornerRadius-medium);
+    color: var(--btn-fg);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 12px;
+    height: 32px;
+    justify-content: center;
+    opacity: 0.9;
+    padding: 0;
+    right: 56px;
+    width: 32px;
+}
 
-    .zoom-controls {
-        align-items: center;
-        background: var(--btn-bg);
-        border-radius: var(--vscode-cornerRadius-medium);
-        display: flex;
-        gap: 4px;
-        justify-content: space-between;
-        left: 50%;
-        padding: 4px 8px;
-        transform: translateX(-50%);
-        z-index: 1;
-    }
+.pin-btn:hover {
+    background: var(--btn-hover);
+    opacity: 1;
+}
 
-    .zoom-btn {
-        background: transparent;
-        border: none;
-        color: var(--fg);
-        cursor: pointer;
-        font-size: 17px;
-        line-height: 1;
-        padding: 0;
-        width: 28px;
-    }
+.pin-btn.active {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
 
-    .zoom-btn:hover {
-        background: var(--bg);
-        color: var(--fg);
-    }
+.pin-btn .ico {
+    height: 16px;
+    width: 16px;
+}
 
-    #zoomResetBtn {
-        border-left: 1px solid var(--border);
-        border-right: 1px solid var(--border);
-        font-size: 10px;
-        width: 50px;
-    }
+.clear-pin-btn {
+    font-size: 20px;
+}
 
-    @keyframes hunkChange {
-        from {
-            opacity: 1;
-            transform: translateX(0);
-        }
-
-        to {
-            opacity: 0;
-            transform: translateX(24px);
-        }
-    }
-
-    .hunk-changing {
-        animation: hunkChange 0.18s ease forwards;
-        pointer-events: none;
-    }
-
-    @keyframes hunkReverse {
-        from {
-            opacity: 0;
-            transform: translateX(24px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateX(0);
-        }
-    }
-
-    .hunk-reversing {
-        animation: hunkReverse 0.18s ease forwards;
-        pointer-events: none;
-    }
-
-    .cloak {
-        visibility: hidden;
-    }
-
-    @keyframes cursor-flash {
-        0%,
-        100% {
-            background-color: transparent;
-        }
-
-        30% {
-            background-color: var(--cursor-flash-bg);
-        }
-
-        70% {
-            background-color: var(--cursor-flash-bg);
-        }
-    }
-
-    .line.cursor-flash {
-        animation: cursor-flash 0.4s ease-out 3;
-    }
+.line-hidden {
+    display: none;
+}

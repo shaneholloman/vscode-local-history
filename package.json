@@ -3,18 +3,17 @@
     "displayName": "Local History (New)",
     "description": "Save files into local history",
     "publisher": "ctf0",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "engines": {
         "vscode": "^1.110.0"
     },
-    "icon": "images/local-history.png",
+    "icon": "images/icon.jpg",
     "repository": "https://github.com/ctf0/local-history.git",
     "keywords": [
         "local",
         "history",
         "save",
-        "backup",
-        "multi-root ready"
+        "backup"
     ],
     "categories": [
         "Other"
@@ -28,7 +27,7 @@
             "activitybar": [
                 {
                     "id": "localHistory",
-                    "icon": "images/history.svg",
+                    "icon": "$(history)",
                     "title": "Local history"
                 }
             ]

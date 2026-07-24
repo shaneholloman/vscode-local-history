@@ -39,3 +39,9 @@
     - up/down scroll vertically
     - direct jump & restore snapshot from the view
     - line & word diff render
+
+## 0.2.1
+
+- new search option in view
+- new option to pin line/s to focus on the changes for specific lines
+- new extension icon

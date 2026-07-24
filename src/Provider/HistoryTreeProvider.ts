@@ -21,9 +21,9 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
 
     private currentHistoryFile : string
     private currentHistoryPath : string
-    private historyFiles       : object // {yesterday: IHistoryFileProperties[]}
+    private historyFiles       : Record<string, IHistoryFileProperties[]>
     // save historyItem structure to be able to redraw
-    private tree = {}  // {yesterday: {grp: HistoryItem, items: HistoryItem[]}}
+    private tree               : Record<string, {grp: HistoryItem, items?: HistoryItem[]}> = {}
     private selection          : HistoryItem
     private activeFilePath     : string | undefined
     private treeView           : vscode.TreeView<HistoryItem> | undefined
@@ -34,7 +34,7 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
     private pendingRevealPath : string | undefined
     private pendingRevealDate : Date | undefined
 
-    public contentKind    : EHistoryTreeContentKind = 0
+    public contentKind    : EHistoryTreeContentKind = EHistoryTreeContentKind.Current
     private searchPattern : string
     private controller    : HistoryController
 
@@ -68,14 +68,10 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
     }
 
     public findItemByPath(fsPath: string): HistoryItem | undefined {
-        for (const groupName of Object.keys(this.tree)) {
-            const group = this.tree[groupName]
-
-            if (group.items) {
-                for (const item of group.items) {
-                    if (item.resourceUri && item.resourceUri.fsPath === fsPath) {
-                        return item
-                    }
+        for (const group of Object.values(this.tree)) {
+            for (const item of group.items || []) {
+                if (item.resourceUri && item.resourceUri.fsPath === fsPath) {
+                    return item
                 }
             }
         }
@@ -99,12 +95,10 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
     }
 
     async getChildren(element?: HistoryItem): Promise<HistoryItem[]> {
-        const hasTreeData = Object.keys(this.tree).length > 0
-
         // Root level: return settings item + groups
         if (!element) {
-            if (hasTreeData) {
-                return [this.getSettingsItem(), ...Object.keys(this.tree).map((key) => this.tree[key].grp)]
+            if (Object.keys(this.tree).length) {
+                return [this.getSettingsItem(), ...Object.values(this.tree).map(({grp}) => grp)]
             }
 
             // First load: fetch history files and build groups
@@ -118,43 +112,47 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
                 await this.loadHistoryFile(document.uri, this.controller.getSettings(document.uri))
             }
 
-            const result = [this.getSettingsItem(), ...this.loadHistoryGroups(this.historyFiles)]
+            const result = [this.getSettingsItem(), ...this.loadHistoryGroups()]
             this.tryRevealPending()
 
             return result
         }
 
         // Child level: return pre-loaded items for a group
-        if (hasTreeData && this.tree[element.label]?.items) {
+        const group = this.tree[element.label]
+
+        if (group?.items) {
             this.tryRevealPending()
 
-            return this.tree[element.label].items
+            return group.items
         }
 
         // Lazy-load group items from historyFiles
-        const items: HistoryItem[] = []
-
-        if (element.kind === EHistoryTreeItem.Group && this.historyFiles?.[element.label]) {
-            this.historyFiles[element.label].forEach((file) => {
-                items.push(
-                    new HistoryItem(
-                        this,
-                        this.format(file),
-                        EHistoryTreeItem.File,
-                        vscode.Uri.file(file.file),
-                        element.label,
-                        true,
-                    ),
-                )
-            })
-            this.tree[element.label].items = items
-            this.tryRevealPending()
+        if (element.kind !== EHistoryTreeItem.Group) {
+            return []
         }
+
+        const files = this.historyFiles?.[element.label]
+
+        if (!files) {
+            return []
+        }
+
+        const items = files.map((file) => new HistoryItem(
+            this,
+            this.format(file),
+            EHistoryTreeItem.File,
+            vscode.Uri.file(file.file),
+            element.label,
+            true,
+        ))
+        this.tree[element.label].items = items
+        this.tryRevealPending()
 
         return items
     }
 
-    private async loadHistoryFile(fileName: vscode.Uri, settings: IHistorySettings): Promise<object> {
+    private async loadHistoryFile(fileName: vscode.Uri, settings: IHistorySettings): Promise<void> {
         let pattern
 
         switch (this.contentKind) {
@@ -222,15 +220,12 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
                 group = this.getRelativeDate(file.date)
             }
 
-            this.historyFiles[group] = this.historyFiles[group] || []
-            this.historyFiles[group].push(file)
+            (this.historyFiles[group] ??= []).push(file)
         })
-
-        return this.historyFiles
     }
 
-    private loadHistoryGroups(historyFiles: object): HistoryItem[] {
-        const historyGroupNames = Object.keys(historyFiles)
+    private loadHistoryGroups(): HistoryItem[] {
+        const historyGroupNames = Object.keys(this.historyFiles)
 
         this.setHasItems(historyGroupNames.length > 0)
 
@@ -281,10 +276,6 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
         } else {
             return 'Older'
         }
-    }
-
-    private redraw() {
-        this._onDidChangeTreeData.fire(undefined)
     }
 
     private tryRevealPending() {
@@ -409,12 +400,10 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
                                 .catch((err) => vscode.window.showErrorMessage(`Delete failed: ${err}`))
                             break
                         case EHistoryTreeContentKind.Search:
-                            const historyGroupNames = Object.keys(this.historyFiles)
+                            const filesToDelete = Object.values(this.historyFiles)
+                                .flatMap((files) => files.map(({file}) => file))
 
-                            if (historyGroupNames.length) {
-                                const filesToDelete = historyGroupNames.flatMap((groupName) =>
-                                    this.historyFiles[groupName].map((historyFile) => historyFile.file))
-
+                            if (filesToDelete.length) {
                                 this.controller.deleteFiles(filesToDelete)
                                     .then(() => this.refresh())
                                     .catch((err) => vscode.window.showErrorMessage(`Delete failed: ${err}`))
@@ -446,7 +435,7 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
                 .then(() => this.refresh())
         } else if (element.kind === EHistoryTreeItem.Group) {
             this.controller.deleteFiles(
-                this.historyFiles[element.label].map((value: IHistoryFileProperties) => value.file))
+                this.historyFiles[element.label].map(({file}) => file))
                 .then(() => this.refresh())
         }
     }
@@ -473,7 +462,7 @@ export default class HistoryTreeProvider implements vscode.TreeDataProvider<Hist
 
             this.selection = element
             this.tree[element.grp].grp.collapsibleState = vscode.TreeItemCollapsibleState.Expanded
-            this.redraw()
+            this._onDidChangeTreeData.fire(undefined)
         }
     }
 

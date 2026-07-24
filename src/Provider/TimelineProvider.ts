@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import {HistoryController} from '../libs/Controller'
 import {getHighlighter, onDidChangeTheme} from '../diff/SyntaxHighlighter'
-import {formatDate, PKG_CONFIG, getIconPath, escapeHtml} from '../utils'
+import {formatDate, PKG_CONFIG, getIconPath} from '../utils'
 import {
     computeLineDiff,
     computeInlineDiff,
@@ -12,7 +12,6 @@ import {
     computeHunks,
     parseSnapshotDate,
     yieldToEventLoop,
-    DiffLine,
 } from '../diff/DiffEngine'
 import {
     buildSideHtml,
@@ -265,6 +264,7 @@ export class TimelineProvider {
         }
 
         const highlightedLines = new Map<string, string>()
+        const isUnified = this.renderMode === 'unified'
 
         const highlight = (line: string) => {
             let highlighted = highlightedLines.get(line)
@@ -277,21 +277,21 @@ export class TimelineProvider {
             return highlighted
         }
 
-        const leftHtmlLines = this.renderMode === 'unified'
+        const leftHtmlLines = isUnified
             ? []
             : buildSideHtml({
                 lines        : leftLines, hiddenRegions, hunkMap, highlight,
                 changedKind  : 'removed', emptyKind    : 'added',
                 changedClass : 'diff-removed', action       : 'add', title        : ADD_HUNK_TITLE,
             })
-        const rightHtmlLines = this.renderMode === 'unified'
+        const rightHtmlLines = isUnified
             ? []
             : buildSideHtml({
                 lines        : rightLines, hiddenRegions, hunkMap, highlight,
                 changedKind  : 'added', emptyKind    : 'removed',
                 changedClass : 'diff-added', action       : 'remove', title        : REMOVE_HUNK_TITLE,
             })
-        const unifiedHtml = this.renderMode === 'unified'
+        const unifiedHtml = isUnified
             ? buildUnifiedHtml(leftLines, rightLines, highlight, hunkMap, hiddenRegions)
             : ''
 
@@ -402,6 +402,12 @@ export class TimelineProvider {
 
                 break
             }
+
+            case 'refresh':
+                this.renderGeneration++
+                this.initialCursorLine = undefined
+                await this.renderSnapshot()
+                break
 
             case 'show-notification':
                 vscode.window.showInformationMessage(msg.message)
@@ -759,10 +765,18 @@ export class TimelineProvider {
             .replace(/__SCRIPT_URI__/g, webview.asWebviewUri(vscode.Uri.joinPath(mediaUri, 'script.js')).toString())
             .replace(/__SCROLL_TOP_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'sort-up-filled.svg'))
             .replace(/__OPEN_FILE_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'exit-pip-outline.svg'))
+            .replace(/__PREV_NAV_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'chevron-left-outline.svg'))
+            .replace(/__NEXT_NAV_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'chevron-right-outline.svg'))
+            .replace(/__SEARCH_PREV_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'chevron-left-outline.svg'))
+            .replace(/__SEARCH_NEXT_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'chevron-right-outline.svg'))
+            .replace(/__SEARCH_CLOSE_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'x-outline.svg'))
+            .replace(/__CLOSE_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'x-outline.svg'))
+            .replace(/__PIN_ICON_URI__/g, getIconPath(webview, this.extensionUri, 'pin-rotate-outline.svg'))
             .replace(/__CSP_SOURCE__/g, webview.cspSource)
             .replace(/__BREAKPOINT__/g, String(breakpoint))
             .replace(/__INITIAL_UNIFIED__/g, String(defaultView === 'unified'))
             .replace(/__LINE_HEIGHT__/g, lineHeight)
+            .replace(/__CONTEXT_LINES__/g, String(Math.max(1, vscode.workspace.getConfiguration('diffEditor').get<number>('hideUnchangedRegions.contextLineCount', 3))))
     }
 
     private dispose() {
