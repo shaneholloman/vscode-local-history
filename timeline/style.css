@@ -127,6 +127,7 @@ body {
 .ctx-item:hover {
     background: var(--vscode-menu-selectionBackground, var(--btn-bg));
     color: var(--vscode-menu-selectionForeground, var(--btn-fg));
+    border-radius: 4px;
 }
 
 /* Title bar */
@@ -255,6 +256,7 @@ body {
 
 .unified-mode::before {
     left: var(--line-number-width);
+    z-index: 0;
 }
 
 .unified-mode::after,
@@ -358,6 +360,94 @@ body {
     background: repeating-linear-gradient(-45deg, var(--stripe) 0 2px, transparent 2px 10px);
 }
 
+/* Moved blocks — use added/removed bg with reduced opacity */
+.diff-moved .ln {
+    background: rgb(0 0 0 / 6%);
+}
+
+.diff-moved.diff-removed .ln {
+    background: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground, rgb(255 0 0 / 20%)) 50%, transparent);
+}
+
+.diff-moved.diff-added .ln {
+    background: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground, rgb(0 255 0 / 20%)) 50%, transparent);
+}
+
+/* 5-color palette from active theme scmGraph.foreground colors */
+.diff-moved-0 { --move-color: var(--vscode-scmGraph-foreground1); }
+.diff-moved-1 { --move-color: var(--vscode-scmGraph-foreground2); }
+.diff-moved-2 { --move-color: var(--vscode-scmGraph-foreground3); }
+.diff-moved-3 { --move-color: var(--vscode-scmGraph-foreground4); }
+.diff-moved-4 { --move-color: var(--vscode-scmGraph-foreground5); }
+
+.diff-moved,
+.move-connector {
+    --moved-border: 1px solid var(--move-color);
+}
+
+.line:not([class*=" diff-moved-"]) + .line.diff-added[class*=" diff-moved-"] .ln-num {
+    border-top: var(--moved-border);
+}
+
+.unified-mode .line:not([class*=" diff-moved-"]) + .line.diff-added[class*=" diff-moved-"] .ln-num {
+    border-top: none;
+}
+
+.diff-moved .ln {
+    position: relative;
+    z-index: 2;
+    border-left: var(--moved-border);
+    border-right: var(--moved-border);
+}
+
+/* In-between lines connecting moved-from to moved-to blocks — colored border on the content area edges (in the central gutter) */
+.move-connector .ln{
+    border-left: var(--moved-border);
+}
+
+#leftPane .move-connector .hidden-label {
+    border-right: var(--moved-border);
+}
+
+.unified-mode .move-connector .hidden-label {
+    border-left: var(--moved-border);
+}
+
+/* Left pane: gutter is on the right (row-reverse), so connector is on the right edge of the code content */
+#leftPane .move-connector .ln {
+    border-left: none;
+    border-right: var(--moved-border);
+}
+
+.move-connector-0 { --move-color: var(--vscode-scmGraph-foreground1, #FFB000); }
+.move-connector-1 { --move-color: var(--vscode-scmGraph-foreground2, #DC267F); }
+.move-connector-2 { --move-color: var(--vscode-scmGraph-foreground3, #994F00); }
+.move-connector-3 { --move-color: var(--vscode-scmGraph-foreground4, #40B0A6); }
+.move-connector-4 { --move-color: var(--vscode-scmGraph-foreground5, #B66DFF); }
+
+/* Top border on first line of a moved group */
+.line:not(.diff-moved) + .line.diff-moved .ln,
+.line.diff-moved:first-child .ln {
+    border-top: var(--moved-border);
+}
+
+/* Bottom border on last line of a moved group */
+.line.diff-moved:has(+ .line:not(.diff-moved)) .ln,
+.line.diff-moved:last-child .ln {
+    border-bottom: var(--moved-border);
+}
+
+/* Inline diff within moved lines — use muted tones */
+.diff-moved .inline-diff-removed {
+    background: var(--vscode-diffEditor-movedTextBackground, rgb(0 0 0 / 15%));
+    box-shadow: none;
+}
+
+.diff-moved .inline-diff-added {
+    background: var(--vscode-diffEditor-movedTextBackground, rgb(0 0 0 / 15%));
+    box-shadow: none;
+}
+
 .clickable-hunk,
 .clickable-region {
     cursor: pointer;
@@ -384,11 +474,19 @@ body {
     justify-content: center;
     position: sticky;
     top: 0;
-    z-index: 2;
+    z-index: 3;
 }
 
 .unchanged-region .hidden-label {
     background: var(--vscode-editor-lineHighlightBackground, transparent);
+}
+
+#rightPane .unchanged-region {
+    margin-left: calc(var(--line-number-width) + 1px);
+}
+
+.unified-mode .unchanged-region {
+    margin-left: var(--line-number-width);
 }
 
 #leftPane .unchanged-region {

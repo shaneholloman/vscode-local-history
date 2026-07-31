@@ -5,9 +5,11 @@ import * as path from 'path'
 // ---------------------------------------------------------------------------
 
 export interface DiffLine {
-    kind    : 'added' | 'removed' | 'unchanged'
-    content : string
-    inline? : InlineDiffPart[]
+    kind           : 'added' | 'removed' | 'unchanged' | 'moved'
+    content        : string
+    inline?        : InlineDiffPart[]
+    moveId?        : number
+    moveConnector? : number
 }
 
 export interface InlineDiffPart {
@@ -18,8 +20,9 @@ export interface InlineDiffPart {
 export type InlineDiff = [InlineDiffPart[], InlineDiffPart[]]
 
 export interface HiddenRegion {
-    start : number
-    count : number
+    start            : number
+    count            : number
+    connectorMoveId? : number
 }
 
 export interface HiddenRegions {
@@ -316,6 +319,18 @@ export function computeInlineDiff(leftText: string, rightText: string): InlineDi
 // Hidden regions (folding unchanged blocks)
 // ---------------------------------------------------------------------------
 
+function findConnectorMoveId(lines: DiffLine[], start: number, count: number): number | undefined {
+    const end = start + count
+
+    for (let i = start; i < end; i++) {
+        if (lines[i].moveConnector !== undefined) {
+            return lines[i].moveConnector
+        }
+    }
+
+    return undefined
+}
+
 export function computeHiddenRegions(lines: DiffLine[], enabled: boolean, minimumLineCount: number, contextLineCount: number): HiddenRegions {
     const starts = new Map<number, HiddenRegion>()
     const lineRegions = new Map<number, HiddenRegion>()
@@ -344,7 +359,8 @@ export function computeHiddenRegions(lines: DiffLine[], enabled: boolean, minimu
 
         if (atStart && atEnd) {
             if (runLength >= minimumLineCount) {
-                const region = {start: runStart, count: runLength}
+                const connectorMoveId = findConnectorMoveId(lines, runStart, runLength)
+                const region: HiddenRegion = {start: runStart, count: runLength, connectorMoveId}
                 starts.set(runStart, region)
 
                 for (let i = runStart; i < runEnd; i++) {
@@ -363,7 +379,8 @@ export function computeHiddenRegions(lines: DiffLine[], enabled: boolean, minimu
         if (hiddenLength >= minimumLineCount) {
             const start = atStart ? runStart : runStart + contextLineCount
             const count = hiddenLength
-            const region = {start, count}
+            const connectorMoveId = findConnectorMoveId(lines, start, count)
+            const region: HiddenRegion = {start, count, connectorMoveId}
 
             starts.set(start, region)
 
@@ -376,6 +393,220 @@ export function computeHiddenRegions(lines: DiffLine[], enabled: boolean, minimu
     }
 
     return {starts, lineRegions}
+}
+
+// ---------------------------------------------------------------------------
+// Moved block detection (git's --color-moved algorithm)
+// ---------------------------------------------------------------------------
+// Replaces the previous Jaccard similarity approach with git's exact-match
+// block detection, matching `git diff --color-moved` (zebra mode):
+//   1. Extract del-blocks (removed) and add-blocks (added) as maximal
+//      consecutive runs of same-sign lines.
+//   2. Greedy block scan: match consecutive del lines against consecutive
+//      add lines by exact content equality. Each add-block line can only
+//      be claimed by one match (one-to-one). When a match fails the size
+//      filter, rewind to retry from the next del line (allows shorter
+//      valid blocks starting later inside a failed longer block).
+//   3. Size filter: require >= 20 alphanumeric characters across the
+//      matched block's lines (COLOR_MOVED_MIN_ALNUM_COUNT, diff.c:1193).
+//   4. Zebra striping: each matched block gets a unique moveId so adjacent
+//      blocks receive different colors via the renderer's moveId % 5 cycling.
+// Reference: git source at SHA a97fcc37c2bc6340a8d7ce78dedf227aac4e9aa7
+// ---------------------------------------------------------------------------
+
+const COLOR_MOVED_MIN_ALNUM_COUNT = 20
+
+function countAlnum(str: string): number {
+    let count = 0
+
+    for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i)
+
+        if (
+            (c >= 48 && c <= 57)
+            || (c >= 65 && c <= 90)
+            || (c >= 97 && c <= 122)
+        ) {
+            count++
+        }
+    }
+
+    return count
+}
+
+export function detectMovedBlocks(
+    leftLines: DiffLine[],
+    rightLines: DiffLine[],
+): void {
+    // --- Phase 1: Extract del-blocks and add-blocks ---
+    // A del-block is a maximal run of 'removed' lines (content from leftLines).
+    // An add-block is a maximal run of 'added' lines (content from rightLines).
+    // A moved block can never span a context line or sign change.
+
+    interface Block {
+        startPos : number
+        endPos   : number
+        lines    : string[]
+    }
+
+    const delBlocks: Block[] = []
+    const addBlocks: Block[] = []
+
+    for (let i = 0; i < leftLines.length; i++) {
+        if (leftLines[i].kind === 'removed') {
+            const start = i
+            const lines: string[] = []
+
+            while (i < leftLines.length && leftLines[i].kind === 'removed') {
+                lines.push(leftLines[i].content)
+                i++
+            }
+
+            delBlocks.push({startPos: start, endPos: i, lines})
+        }
+    }
+
+    for (let i = 0; i < rightLines.length; i++) {
+        if (rightLines[i].kind === 'added') {
+            const start = i
+            const lines: string[] = []
+
+            while (i < rightLines.length && rightLines[i].kind === 'added') {
+                lines.push(rightLines[i].content)
+                i++
+            }
+
+            addBlocks.push({startPos: start, endPos: i, lines})
+        }
+    }
+
+    if (delBlocks.length === 0 || addBlocks.length === 0) {
+        return
+    }
+
+    // --- Phase 2: Greedy block matching (exact line-by-line) ---
+    // For each del-block, find the longest exact match against an add-block.
+    // Track which add-block lines are claimed to ensure one-to-one matching.
+    // Rewind: if a match fails the size filter, retry from the next del line.
+
+    const addLineClaimed: Set<number>[] = addBlocks.map(() => new Set<number>())
+
+    interface MoveMatch {
+        delBlockIdx : number
+        addBlockIdx : number
+        delStart    : number // line offset within del-block
+        delLen      : number // number of matched lines
+        addStart    : number // line offset within add-block
+    }
+
+    const moveMatches: MoveMatch[] = []
+
+    for (let dIdx = 0; dIdx < delBlocks.length; dIdx++) {
+        const delBlock = delBlocks[dIdx]
+        let dLine = 0
+
+        while (dLine < delBlock.lines.length) {
+            let bestMatch: {aIdx: number, aStart: number, len: number} | null = null
+
+            for (let aIdx = 0; aIdx < addBlocks.length; aIdx++) {
+                const addBlock = addBlocks[aIdx]
+                const claimed = addLineClaimed[aIdx]
+
+                for (let aStart = 0; aStart < addBlock.lines.length; aStart++) {
+                    if (claimed.has(aStart)) {
+                        continue
+                    }
+
+                    let len = 0
+
+                    while (
+                        dLine + len < delBlock.lines.length
+                        && aStart + len < addBlock.lines.length
+                        && !claimed.has(aStart + len)
+                        && delBlock.lines[dLine + len] === addBlock.lines[aStart + len]
+                    ) {
+                        len++
+                    }
+
+                    if (len > 0 && (!bestMatch || len > bestMatch.len)) {
+                        bestMatch = {aIdx, aStart, len}
+                    }
+                }
+            }
+
+            if (bestMatch) {
+                // Size filter: count alnum chars across matched del lines
+                let alnumCount = 0
+
+                for (let i = 0; i < bestMatch.len; i++) {
+                    alnumCount += countAlnum(delBlock.lines[dLine + i])
+                }
+
+                if (alnumCount >= COLOR_MOVED_MIN_ALNUM_COUNT) {
+                    moveMatches.push({
+                        delBlockIdx : dIdx,
+                        addBlockIdx : bestMatch.aIdx,
+                        delStart    : dLine,
+                        delLen      : bestMatch.len,
+                        addStart    : bestMatch.aStart,
+                    })
+
+                    for (let i = 0; i < bestMatch.len; i++) {
+                        addLineClaimed[bestMatch.aIdx].add(bestMatch.aStart + i)
+                    }
+
+                    dLine += bestMatch.len
+                } else {
+                    // Size filter failed — rewind: try from next del line
+                    dLine++
+                }
+            } else {
+                // No match found — advance to next del line
+                dLine++
+            }
+        }
+    }
+
+    if (moveMatches.length === 0) {
+        return
+    }
+
+    // --- Phase 3: Mark lines as moved with zebra striping ---
+    // Each matched block gets a unique moveId so adjacent blocks receive
+    // different colors via the renderer's `moveId % 5` color cycling.
+
+    let nextMoveId = 0
+
+    for (const match of moveMatches) {
+        const delBlock = delBlocks[match.delBlockIdx]
+        const addBlock = addBlocks[match.addBlockIdx]
+        const moveId = nextMoveId++
+
+        for (let i = 0; i < match.delLen; i++) {
+            const pos = delBlock.startPos + match.delStart + i
+            leftLines[pos].kind = 'moved'
+            leftLines[pos].moveId = moveId
+        }
+
+        for (let i = 0; i < match.delLen; i++) {
+            const pos = addBlock.startPos + match.addStart + i
+            rightLines[pos].kind = 'moved'
+            rightLines[pos].moveId = moveId
+        }
+
+        const delStart = delBlock.startPos + match.delStart
+        const delEnd = delStart + match.delLen
+        const addStart = addBlock.startPos + match.addStart
+        const addEnd = addStart + match.delLen
+
+        const connectorStart = Math.min(delEnd, addEnd)
+        const connectorEnd = Math.max(delStart, addStart)
+
+        for (let i = connectorStart; i < connectorEnd; i++) {
+            leftLines[i].moveConnector = moveId
+            rightLines[i].moveConnector = moveId
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -403,12 +634,12 @@ export function computeHunks(leftLines: DiffLine[], rightLines: DiffLine[]): Hun
         const currLines: string[] = []
 
         while (i < leftLines.length && leftLines[i].kind !== 'unchanged') {
-            if (leftLines[i].kind === 'removed') {
+            if (leftLines[i].kind === 'removed' || leftLines[i].kind === 'moved') {
                 snapLines.push(leftLines[i].content)
                 snapLine++
             }
 
-            if (rightLines[i].kind === 'added') {
+            if (rightLines[i].kind === 'added' || rightLines[i].kind === 'moved') {
                 currLines.push(rightLines[i].content)
                 currLine++
             }

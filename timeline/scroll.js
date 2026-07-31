@@ -33,7 +33,7 @@ export function createScrollController(app) {
 
         for (const line of container.querySelectorAll('.line[data-line]')) {
             if (line.classList.contains('unchanged-region')
-                || line.closest('.region-block:not(.expanded)')) {
+              || line.closest('.region-block:not(.expanded)')) {
                 continue
             }
 

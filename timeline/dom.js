@@ -19,7 +19,7 @@ export const dom = {
     clearPinBtn        : document.getElementById('clearPinBtn'),
     closeBtn           : document.getElementById('closeBtn'),
     diffContainer      : document.querySelector('.diff-container'),
-    loadingIndicator    : document.querySelector('.loading-indicator'),
+    loadingIndicator   : document.querySelector('.loading-indicator'),
     hoverTooltip       : document.getElementById('hoverTooltip'),
     leftPane           : document.getElementById('leftPane'),
     rightPane          : document.getElementById('rightPane'),

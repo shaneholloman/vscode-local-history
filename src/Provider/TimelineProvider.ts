@@ -10,6 +10,7 @@ import {
     computeInlineDiff,
     computeHiddenRegions,
     computeHunks,
+    detectMovedBlocks,
     parseSnapshotDate,
     yieldToEventLoop,
 } from '../diff/DiffEngine'
@@ -230,6 +231,14 @@ export class TimelineProvider {
 
         const leftLines = diff[0]
         const rightLines = diff[1]
+
+        // Detect moved blocks (respects diffEditor.experimental.showMoves)
+        const showMoves = vscode.workspace.getConfiguration('diffEditor').get<boolean>('experimental.showMoves', false)
+
+        if (showMoves) {
+            detectMovedBlocks(leftLines, rightLines)
+        }
+
         const diffEditorConfig = vscode.workspace.getConfiguration('diffEditor')
         const hiddenRegions = computeHiddenRegions(
             leftLines,
@@ -280,16 +289,28 @@ export class TimelineProvider {
         const leftHtmlLines = isUnified
             ? []
             : buildSideHtml({
-                lines        : leftLines, hiddenRegions, hunkMap, highlight,
-                changedKind  : 'removed', emptyKind    : 'added',
-                changedClass : 'diff-removed', action       : 'add', title        : ADD_HUNK_TITLE,
+                lines        : leftLines,
+                hiddenRegions,
+                hunkMap,
+                highlight,
+                changedKind  : 'removed',
+                emptyKind    : 'added',
+                changedClass : 'diff-removed',
+                action       : 'add',
+                title        : ADD_HUNK_TITLE,
             })
         const rightHtmlLines = isUnified
             ? []
             : buildSideHtml({
-                lines        : rightLines, hiddenRegions, hunkMap, highlight,
-                changedKind  : 'added', emptyKind    : 'removed',
-                changedClass : 'diff-added', action       : 'remove', title        : REMOVE_HUNK_TITLE,
+                lines        : rightLines,
+                hiddenRegions,
+                hunkMap,
+                highlight,
+                changedKind  : 'added',
+                emptyKind    : 'removed',
+                changedClass : 'diff-added',
+                action       : 'remove',
+                title        : REMOVE_HUNK_TITLE,
             })
         const unifiedHtml = isUnified
             ? buildUnifiedHtml(leftLines, rightLines, highlight, hunkMap, hiddenRegions)
@@ -422,8 +443,16 @@ export class TimelineProvider {
                 this.panel?.webview.postMessage({type: 'action-result', applied: await this.applyHunk(msg.index)})
                 break
 
+            case 'apply-hunks':
+                this.panel?.webview.postMessage({type: 'action-result', applied: await this.applyHunks(msg.indices)})
+                break
+
             case 'apply-line':
                 this.panel?.webview.postMessage({type: 'action-result', applied: await this.applyLine(msg.hunkIndex, msg.alignedIndex, msg.action)})
+                break
+
+            case 'apply-lines':
+                this.panel?.webview.postMessage({type: 'action-result', applied: await this.applyLines(msg.lines)})
                 break
 
             case 'undo':
@@ -499,6 +528,58 @@ export class TimelineProvider {
         return true
     }
 
+    private async applyHunks(indices: number[]): Promise<boolean> {
+        if (!this.currentFileUri || this.snapshots.length === 0 || indices.length === 0) {
+            return false
+        }
+
+        let snapshotContent: string
+
+        try {
+            snapshotContent = fs.readFileSync(this.snapshots[this.snapshotIndex], 'utf-8')
+        } catch {
+            return false
+        }
+
+        const diff = await computeLineDiff(snapshotContent, this.currentFileContent)
+
+        if (!diff) {
+            return false
+        }
+
+        const hunks = computeHunks(diff[0], diff[1])
+        const valid = indices.filter((idx) => idx >= 0 && idx < hunks.length).sort((a, b) => b - a)
+
+        if (valid.length === 0) {
+            return false
+        }
+
+        const capturedUndo = this.captureUndoContent(this.currentFileContent)
+        const currentLineCount = this.currentFileContent.split('\n').length
+        const edit = new vscode.WorkspaceEdit()
+
+        for (const idx of valid) {
+            const hunk = hunks[idx]
+            const range = new vscode.Range(hunk.currentStart, 0, hunk.currentEnd, 0)
+            const replacement = hunk.snapshotContent + (hunk.currentEnd < currentLineCount ? '\n' : '')
+            edit.replace(this.currentFileUri, range, replacement)
+        }
+
+        if (!await vscode.workspace.applyEdit(edit)) {
+            if (capturedUndo) {
+                this.discardLastUndoContent()
+            }
+
+            return false
+        }
+
+        const doc = await vscode.workspace.openTextDocument(this.currentFileUri)
+        this.currentFileContent = doc.getText()
+        await this.renderSnapshot()
+
+        return true
+    }
+
     private async applyLine(hunkIndex: number, alignedIndex: number, action: 'add' | 'remove'): Promise<boolean> {
         if (!this.currentFileUri || this.snapshots.length === 0) {
             return false
@@ -529,7 +610,7 @@ export class TimelineProvider {
         let currentOffset = 0
 
         for (let i = hunk.alignedStart; i < leftLines.length && leftLines[i].kind !== 'unchanged'; i++) {
-            const isCurrentLine = rightLines[i].kind === 'added'
+            const isCurrentLine = rightLines[i].kind === 'added' || rightLines[i].kind === 'moved'
 
             if (i === alignedIndex) {
                 const targetLine = hunk.currentStart + currentOffset
@@ -568,6 +649,83 @@ export class TimelineProvider {
         }
 
         return false
+    }
+
+    private async applyLines(lines: {hunkIndex: number, alignedIndex: number, action: 'add' | 'remove'}[]): Promise<boolean> {
+        if (!this.currentFileUri || this.snapshots.length === 0 || lines.length === 0) {
+            return false
+        }
+
+        let snapshotContent: string
+
+        try {
+            snapshotContent = fs.readFileSync(this.snapshots[this.snapshotIndex], 'utf-8')
+        } catch {
+            return false
+        }
+
+        const diff = await computeLineDiff(snapshotContent, this.currentFileContent)
+
+        if (!diff) {
+            return false
+        }
+
+        const [leftLines, rightLines] = diff
+        const hunks = computeHunks(leftLines, rightLines)
+        const capturedUndo = this.captureUndoContent(this.currentFileContent)
+        const edit = new vscode.WorkspaceEdit()
+        const edits: {targetLine: number, isReplace: boolean, action: 'add' | 'remove', lineContent: string}[] = []
+
+        for (const {hunkIndex, alignedIndex, action} of lines) {
+            if (hunkIndex < 0 || hunkIndex >= hunks.length) {
+                continue
+            }
+
+            const hunk = hunks[hunkIndex]
+            let currentOffset = 0
+
+            for (let i = hunk.alignedStart; i < leftLines.length && leftLines[i].kind !== 'unchanged'; i++) {
+                const isCurrentLine = rightLines[i].kind === 'added' || rightLines[i].kind === 'moved'
+
+                if (i === alignedIndex) {
+                    const targetLine = hunk.currentStart + currentOffset
+                    const lineContent = leftLines[i].content
+                    edits.push({targetLine, isReplace: isCurrentLine, action, lineContent})
+                    break
+                }
+
+                if (isCurrentLine) {
+                    currentOffset++
+                }
+            }
+        }
+
+        edits.sort((a, b) => b.targetLine - a.targetLine)
+
+        for (const {targetLine, isReplace, action, lineContent} of edits) {
+            if (action === 'add') {
+                if (isReplace) {
+                    edit.replace(this.currentFileUri, new vscode.Range(targetLine, 0, targetLine + 1, 0), lineContent + '\n')
+                } else {
+                    edit.insert(this.currentFileUri, new vscode.Position(targetLine, 0), lineContent + '\n')
+                }
+            } else {
+                edit.delete(this.currentFileUri, new vscode.Range(targetLine, 0, targetLine + 1, 0))
+            }
+        }
+
+        if (!await vscode.workspace.applyEdit(edit)) {
+            if (capturedUndo) {
+                this.discardLastUndoContent()
+            }
+
+            return false
+        }
+
+        this.currentFileContent = (await vscode.workspace.openTextDocument(this.currentFileUri)).getText()
+        await this.renderSnapshot()
+
+        return true
     }
 
     private async undoLastAction(): Promise<boolean> {

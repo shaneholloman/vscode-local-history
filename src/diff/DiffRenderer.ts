@@ -14,12 +14,19 @@ export const REMOVE_HUNK_TITLE = 'Remove this change'
 
 export function renderHiddenRegion(region: HiddenRegion): string {
     const title = `Show ${region.count} unchanged lines`
+    const connectorClass = region.connectorMoveId !== undefined
+        ? ` move-connector move-connector-${region.connectorMoveId % 5}`
+        : ''
 
-    return `<div class="line unchanged-region clickable-region" data-region="${region.start}" data-line="${region.start + 1}" data-count="${region.count}" data-tooltip="${title}" aria-label="${title}" role="button" tabindex="0"><span class="hidden-label" data-region-label="${region.start}">${title}</span></div>`
+    return `<div class="line unchanged-region clickable-region${connectorClass}" data-region="${region.start}" data-line="${region.start + 1}" data-count="${region.count}" data-tooltip="${title}" aria-label="${title}" role="button" tabindex="0"><span class="hidden-label" data-region-label="${region.start}">${title}</span></div>`
 }
 
-export function renderHiddenLine(diffLine: DiffLine, lineNumber: number, highlight: (s: string) => string): string {
-    return `<div class="line" data-line="${lineNumber}"><span class="ln-num">${lineNumber}</span><span class="ln">${highlight(diffLine.content)}</span></div>`
+export function renderHiddenLine(diffLine: DiffLine, lineNumber: number, highlight: (s: string) => string, moveConnector?: number): string {
+    const connectorClass = moveConnector !== undefined
+        ? ` move-connector move-connector-${moveConnector % 5}`
+        : ''
+
+    return `<div class="line${connectorClass}" data-line="${lineNumber}"><span class="ln-num">${lineNumber}</span><span class="ln">${highlight(diffLine.content)}</span></div>`
 }
 
 export function renderInlineDiff(content: string, parts: InlineDiffPart[] | undefined, highlight: (s: string) => string): string {
@@ -41,8 +48,8 @@ export interface SideHtmlConfig {
     hiddenRegions : HiddenRegions
     hunkMap       : Map<number, number>
     highlight     : (s: string) => string
-    changedKind   : 'added' | 'removed'
-    emptyKind     : 'added' | 'removed'
+    changedKind   : 'added' | 'removed' | 'moved'
+    emptyKind     : 'added' | 'removed' | 'moved'
     changedClass  : string
     action        : 'add' | 'remove'
     title         : string
@@ -63,7 +70,7 @@ export function buildSideHtml(config: SideHtmlConfig): string[] {
         }
 
         if (hiddenRegionAtLine) {
-            out.push(renderHiddenLine(diffLine, i + 1, highlight))
+            out.push(renderHiddenLine(diffLine, i + 1, highlight, diffLine.moveConnector))
 
             if (!hiddenRegions.lineRegions.has(i + 1)) {
                 out.push('</div></div>')
@@ -72,6 +79,21 @@ export function buildSideHtml(config: SideHtmlConfig): string[] {
             continue
         }
 
+        if (diffLine.kind === 'moved') {
+            const moveId = diffLine.moveId ?? 0
+            const hunkIdx = hunkMap.get(i)
+            const hunkTitle = hunkIdx === undefined ? '' : title
+            const attrs = hunkIdx === undefined
+                ? ''
+                : ` data-line="${i + 1}" data-hunk="${hunkIdx}" data-i="${i}" data-action="${action}" data-tooltip="${hunkTitle}" aria-label="${hunkTitle}" role="button" tabindex="0"`
+            const lineAttrs = hunkIdx === undefined ? ` data-line="${i + 1}" data-move-id="${moveId}"` : attrs + ` data-move-id="${moveId}"`
+            out.push(`<div class="line ${changedClass} diff-moved diff-moved-${moveId % 5}${hunkIdx === undefined ? '' : ' clickable-hunk'}"${lineAttrs}><span class="ln-num">${i + 1}</span><span class="ln">${renderInlineDiff(diffLine.content, diffLine.inline, highlight)}</span></div>`)
+            continue
+        }
+
+        const connectorClass = diffLine.moveConnector !== undefined
+            ? ` move-connector move-connector-${diffLine.moveConnector % 5}`
+            : ''
         const cssClass = diffLine.kind === changedKind
             ? ` ${changedClass}`
             : diffLine.kind === emptyKind ? ' diff-empty' : ''
@@ -82,7 +104,7 @@ export function buildSideHtml(config: SideHtmlConfig): string[] {
             : ` data-line="${i + 1}" data-hunk="${hunkIdx}" data-i="${i}" data-action="${action}" data-tooltip="${hunkTitle}" aria-label="${hunkTitle}" role="button" tabindex="0"`
 
         const lineAttrs = hunkIdx === undefined ? ` data-line="${i + 1}"` : attrs
-        out.push(`<div class="line${cssClass}${hunkIdx === undefined ? '' : ' clickable-hunk'}"${lineAttrs}><span class="ln-num">${i + 1}</span><span class="ln">${renderInlineDiff(diffLine.content, diffLine.inline, highlight)}</span></div>`)
+        out.push(`<div class="line${cssClass}${connectorClass}${hunkIdx === undefined ? '' : ' clickable-hunk'}"${lineAttrs}><span class="ln-num">${i + 1}</span><span class="ln">${renderInlineDiff(diffLine.content, diffLine.inline, highlight)}</span></div>`)
     }
 
     return out
@@ -115,7 +137,7 @@ export function buildUnifiedHtml(leftLines: DiffLine[], rightLines: DiffLine[], 
 
         if (hiddenRegionAtLine) {
             if (leftLine) {
-                out.push(renderHiddenLine(leftLine, lineNum, highlight))
+                out.push(renderHiddenLine(leftLine, lineNum, highlight, leftLine.moveConnector))
             }
 
             if (!hiddenRegions?.lineRegions.has(i + 1)) {
@@ -123,6 +145,28 @@ export function buildUnifiedHtml(leftLines: DiffLine[], rightLines: DiffLine[], 
             }
 
             continue
+        }
+
+        if (leftLine && leftLine.kind === 'moved') {
+            const moveId = leftLine.moveId ?? 0
+            const hunkIdx = hunkMap?.get(i)
+            const hunkTitle = hunkIdx === undefined ? '' : ADD_HUNK_TITLE
+            const attrs = hunkIdx === undefined
+                ? ''
+                : ` data-line="${lineNum}" data-hunk="${hunkIdx}" data-i="${i}" data-action="add" data-tooltip="${hunkTitle}" aria-label="${hunkTitle}" role="button" tabindex="0"`
+            const lineAttrs = hunkIdx === undefined ? ` data-line="${lineNum}" data-move-id="${moveId}"` : attrs + ` data-move-id="${moveId}"`
+            out.push(`<div class="line diff-removed diff-moved diff-moved-${moveId % 5}${hunkIdx === undefined ? '' : ' clickable-hunk'}"${lineAttrs}><span class="ln-num">${lineNum}</span><span class="ln">${leftContent}</span></div>`)
+        }
+
+        if (rightLine && rightLine.kind === 'moved') {
+            const moveId = rightLine.moveId ?? 0
+            const hunkIdx = hunkMap?.get(i)
+            const hunkTitle = hunkIdx === undefined ? '' : REMOVE_HUNK_TITLE
+            const attrs = hunkIdx === undefined
+                ? ''
+                : ` data-line="${lineNum}" data-hunk="${hunkIdx}" data-i="${i}" data-action="remove" data-tooltip="${hunkTitle}" aria-label="${hunkTitle}" role="button" tabindex="0"`
+            const lineAttrs = hunkIdx === undefined ? ` data-line="${lineNum}" data-move-id="${moveId}"` : attrs + ` data-move-id="${moveId}"`
+            out.push(`<div class="line diff-added diff-moved diff-moved-${moveId % 5}${hunkIdx === undefined ? '' : ' clickable-hunk'}"${lineAttrs}>${rightLineNumber}<span class="ln">${rightContent}</span></div>`)
         }
 
         if (leftLine && leftLine.kind === 'removed') {
@@ -146,7 +190,10 @@ export function buildUnifiedHtml(leftLines: DiffLine[], rightLines: DiffLine[], 
         }
 
         if (leftLine && leftLine.kind === 'unchanged') {
-            out.push(`<div class="line" data-line="${lineNum}"><span class="ln-num">${lineNum}</span><span class="ln">${leftContent}</span></div>`)
+            const connectorClass = leftLine.moveConnector !== undefined
+                ? ` move-connector move-connector-${leftLine.moveConnector % 5}`
+                : ''
+            out.push(`<div class="line${connectorClass}" data-line="${lineNum}"><span class="ln-num">${lineNum}</span><span class="ln">${leftContent}</span></div>`)
         }
     }
 

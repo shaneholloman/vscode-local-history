@@ -12,10 +12,11 @@ A full-featured diff viewer for navigating file history with snapshot-to-current
 
 ### Interactive Diff & Hunk Management
 
-- **Hunk-level apply/reject** — click any changed line block to apply snapshot changes to the current file, or reject current changes (restoring snapshot content).
-- **Partial (single-line) hunk actions** — `Cmd/Ctrl + Click` a single line within a hunk to apply or reject just that line, leaving the rest of the hunk unchanged.
-- **Undo stack** — every hunk/line action is backed by a file-based undo copy, so you can undo with `Cmd/Ctrl + Z`. Undo survives timeline navigation and panel close/reopen within the same session. Configurable with `localHistory.fileBackedUndo`.
-- **Context menu** — right-click any line/hunk to copy its content.
+- **Hunk-level apply/reject** - click any changed line block to apply snapshot changes to the current file, or reject current changes (restoring snapshot content).
+- **Partial (single-line) hunk actions** - `Cmd/Ctrl + Click` a single line within a hunk to apply or reject just that line, leaving the rest of the hunk unchanged.
+- **Undo stack** - every hunk/line action is backed by a file-based undo copy, so you can undo with `Cmd/Ctrl + Z`. Undo survives timeline navigation and panel close/reopen within the same session. Configurable with `localHistory.fileBackedUndo`.
+- **Context menu** - right-click any line/hunk to copy its content.
+- detect moved blocks.
 
 ### Visuals
 

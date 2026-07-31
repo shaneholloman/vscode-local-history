@@ -86,16 +86,19 @@ export function createRenderController(app) {
                 element.classList.add('cursor-flash')
                 element.addEventListener('animationend', () => element.classList.remove('cursor-flash'), {once: true})
             }
+
             const flashTarget = () => {
                 flashElement(target)
 
                 if (!state.unified && container === dom.rightLines) {
                     const pair = dom.leftLines.querySelector(`.line[data-line="${target.getAttribute('data-line')}"]`)
+
                     if (pair) {
                         flashElement(pair)
                     }
                 }
             }
+
             const pane = state.unified ? dom.unifiedPane : dom.rightPaneBody
             const paneRect = pane.getBoundingClientRect()
             const targetRect = target.getBoundingClientRect()

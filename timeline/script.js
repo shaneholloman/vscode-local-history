@@ -7,28 +7,28 @@ import {createTimelineController} from './timeline.js'
 
 const vscode = acquireVsCodeApi()
 const state = {
-    webviewActive       : true,
-    diffLoading         : false,
-    userChoice          : null,
-    unified             : document.body.dataset.initialUnified === 'true',
-    requestedUnified    : document.body.dataset.initialUnified === 'true',
-    zoom                : 100,
-    tooltipTarget       : null,
-    metaPressed         : false,
-    currentSnapshotIndex: 0,
-    totalSnapshotCount  : 0,
-    snapshotDates       : [],
-    cachedRightHtml     : null,
-    webviewReady        : false,
-    searchMatches       : [],
-    searchCurrentIndex  : -1,
-    searchOpen          : false,
-    pinnedLines         : new Set(),
-    pinActive           : false,
-    pendingScrollRestore: null,
-    pendingScrollLine   : null,
-    pendingUndoAnimation: null,
-    lastHunkAction      : null,
+    webviewActive        : true,
+    diffLoading          : false,
+    userChoice           : null,
+    unified              : document.body.dataset.initialUnified === 'true',
+    requestedUnified     : document.body.dataset.initialUnified === 'true',
+    zoom                 : 100,
+    tooltipTarget        : null,
+    metaPressed          : false,
+    currentSnapshotIndex : 0,
+    totalSnapshotCount   : 0,
+    snapshotDates        : [],
+    cachedRightHtml      : null,
+    webviewReady         : false,
+    searchMatches        : [],
+    searchCurrentIndex   : -1,
+    searchOpen           : false,
+    pinnedLines          : new Set(),
+    pinActive            : false,
+    pendingScrollRestore : null,
+    pendingScrollLine    : null,
+    pendingUndoAnimation : null,
+    lastHunkAction       : null,
 }
 const app = {dom, state, vscode}
 const breakpoint = Number(document.body.dataset.breakpoint)
@@ -489,9 +489,17 @@ function handleMessage(event) {
     const msg = event.data
 
     if (msg.type === 'zoom') {
-        if (msg.action === 'in') changeZoom(10)
-        if (msg.action === 'out') changeZoom(-10)
-        if (msg.action === 'reset') setZoom(100)
+        if (msg.action === 'in') {
+            changeZoom(10)
+        }
+
+        if (msg.action === 'out') {
+            changeZoom(-10)
+        }
+
+        if (msg.action === 'reset') {
+            setZoom(100)
+        }
 
         return
     }

@@ -88,8 +88,8 @@ export function createSearchController(app) {
         for (const container of containers) {
             for (const line of container.querySelectorAll('.line[data-line]')) {
                 if (line.classList.contains('line-hidden')
-                    || line.classList.contains('unchanged-region')
-                    || line.closest('.region-block:not(.expanded)')) {
+                  || line.classList.contains('unchanged-region')
+                  || line.closest('.region-block:not(.expanded)')) {
                     continue
                 }
 

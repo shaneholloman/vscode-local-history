@@ -37,9 +37,18 @@ export function createDiffActionsController(app) {
     }
 
     function animateUndo(actionMessage) {
-        const selector = actionMessage.type === 'apply-line'
-            ? `.clickable-hunk[data-hunk="${actionMessage.hunkIndex}"][data-i="${actionMessage.alignedIndex}"]`
-            : `.clickable-hunk[data-hunk="${actionMessage.index}"]`
+        let selector
+
+        if (actionMessage.type === 'apply-line') {
+            selector = `.clickable-hunk[data-hunk="${actionMessage.hunkIndex}"][data-i="${actionMessage.alignedIndex}"]`
+        } else if (actionMessage.type === 'apply-lines') {
+            selector = actionMessage.lines.map((l) => `.clickable-hunk[data-hunk="${l.hunkIndex}"][data-i="${l.alignedIndex}"]`).join(',')
+        } else if (actionMessage.type === 'apply-hunks') {
+            selector = actionMessage.indices.map((idx) => `.clickable-hunk[data-hunk="${idx}"]`).join(',')
+        } else {
+            selector = `.clickable-hunk[data-hunk="${actionMessage.index}"]`
+        }
+
         const lines = document.querySelectorAll(selector)
 
         lines.forEach((line) => line.classList.add('hunk-reversing'))
@@ -66,10 +75,28 @@ export function createDiffActionsController(app) {
         document.querySelectorAll(`.clickable-hunk[data-hunk="${hunkIndex}"]`).forEach((hunkLine) => {
             hunkLine.classList.add('hunk-changing')
         })
-        scheduleHunkAction({
-            type  : line.dataset.action === 'add' ? 'apply-hunk' : 'reject-hunk',
-            index : parseInt(hunkIndex),
-        })
+
+        const indices = [parseInt(hunkIndex)]
+
+        const moveId = line.dataset.moveId
+
+        if (moveId !== undefined) {
+            const pairedLine = document.querySelector(`.clickable-hunk[data-move-id="${moveId}"]:not([data-hunk="${hunkIndex}"])`)
+
+            if (pairedLine) {
+                const pairedHunkIndex = pairedLine.dataset.hunk
+
+                if (!activatingHunks.has(pairedHunkIndex)) {
+                    activatingHunks.add(pairedHunkIndex)
+                    document.querySelectorAll(`.clickable-hunk[data-hunk="${pairedHunkIndex}"]`).forEach((hunkLine) => {
+                        hunkLine.classList.add('hunk-changing')
+                    })
+                    indices.push(parseInt(pairedHunkIndex))
+                }
+            }
+        }
+
+        scheduleHunkAction({type: 'apply-hunks', indices})
     }
 
     function activateLine(line) {
@@ -84,7 +111,30 @@ export function createDiffActionsController(app) {
 
         activatingHunks.add(key)
         line.classList.add('hunk-changing')
-        scheduleHunkAction({type: 'apply-line', hunkIndex: parseInt(hunkIndex), alignedIndex, action})
+
+        const lines = [{hunkIndex: parseInt(hunkIndex), alignedIndex, action}]
+
+        const moveId = line.dataset.moveId
+
+        if (moveId !== undefined) {
+            const pairedLine = document.querySelector(`.clickable-hunk[data-move-id="${moveId}"]:not([data-hunk="${hunkIndex}"])`)
+
+            if (pairedLine) {
+                const pairedKey = pairedLine.dataset.hunk + '-' + pairedLine.dataset.i
+
+                if (!activatingHunks.has(pairedKey)) {
+                    activatingHunks.add(pairedKey)
+                    pairedLine.classList.add('hunk-changing')
+                    lines.push({
+                        hunkIndex    : parseInt(pairedLine.dataset.hunk),
+                        alignedIndex : parseInt(pairedLine.dataset.i),
+                        action       : pairedLine.dataset.action,
+                    })
+                }
+            }
+        }
+
+        scheduleHunkAction({type: 'apply-lines', lines})
     }
 
     function toggleRegion(toggle) {
@@ -131,6 +181,7 @@ export function createDiffActionsController(app) {
 
     function activateDiffTarget(target, event) {
         const hunk = target.closest('.clickable-hunk')
+
         const region = target.closest('.clickable-region')
 
         if (hunk) {
@@ -289,7 +340,7 @@ export function createDiffActionsController(app) {
         bind,
         clearHunkAnimations,
         hideContextMenu,
-        isContextMenuOpen: () => dom.contextMenu.style.display === 'block',
+        isContextMenuOpen : () => dom.contextMenu.style.display === 'block',
         undo,
     }
 }
