@@ -401,7 +401,7 @@ body {
 }
 
 /* In-between lines connecting moved-from to moved-to blocks — colored border on the content area edges (in the central gutter) */
-.move-connector .ln{
+.unified-mode .move-connector .ln{
     border-left: var(--moved-border);
 }
 
